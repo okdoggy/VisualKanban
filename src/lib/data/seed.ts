@@ -1,4 +1,4 @@
-import type { Activity, Comment, MindmapNode, PermissionAssignment, Project, Task, User } from "@/lib/types";
+import type { Activity, Comment, KanbanHistoryItem, MindmapNode, PermissionAssignment, Project, Task, User } from "@/lib/types";
 
 const now = new Date().toISOString();
 const nowDate = new Date();
@@ -220,6 +220,16 @@ export const seedTasks: Task[] = [
     updatedAt: now
   }
 ];
+
+export const seedKanbanTasks: Task[] = seedTasks.map((task) => ({
+  ...task,
+  id: `kanban-${task.id}`,
+  parentTaskId: task.parentTaskId ? `kanban-${task.parentTaskId}` : undefined,
+  participantIds: task.participantIds ? [...task.participantIds] : undefined,
+  tags: task.status === "backlog" ? ["kanban-stage:todo", ...task.tags] : [...task.tags]
+}));
+
+export const seedKanbanHistory: KanbanHistoryItem[] = [];
 
 export const seedComments: Comment[] = [
   {

@@ -60,8 +60,26 @@ export interface Task {
   updatedAt: string;
 }
 
+export type KanbanTaskStatus = TaskStatus | "todo";
+
+export interface KanbanHistoryItem {
+  id: string;
+  projectId: string;
+  task: Task;
+  finalizedAt: string;
+  finalizedBy: string;
+}
+
+export type KanbanTaskPatch = Partial<Omit<Task, "status">> & {
+  status?: KanbanTaskStatus;
+};
+
 export type AddTaskInput = Pick<Task, "projectId" | "title" | "description" | "priority" | "assigneeId" | "dueDate" | "visibility"> &
-  Partial<Pick<Task, "participantIds" | "parentTaskId" | "order" | "startDate" | "endDate">>;
+  Partial<Pick<Task, "participantIds" | "parentTaskId" | "order" | "startDate" | "endDate">> & {
+    status?: KanbanTaskStatus;
+    tags?: Task["tags"];
+    ownerId?: Task["ownerId"];
+  };
 
 export interface Comment {
   id: string;
@@ -94,6 +112,8 @@ export interface VisualKanbanState {
   projects: Project[];
   permissions: PermissionAssignment[];
   tasks: Task[];
+  kanbanTasks: Task[];
+  kanbanHistory: KanbanHistoryItem[];
   comments: Comment[];
   mindmapNodes: MindmapNode[];
   activities: Activity[];
@@ -108,6 +128,11 @@ export interface VisualKanbanState {
   addProject: (input: Pick<Project, "name" | "description">) => { ok: boolean; reason?: string; projectId?: string };
 
   addTask: (input: AddTaskInput) => void;
+  addKanbanTask: (input: AddTaskInput) => void;
+  updateKanbanTask: (taskId: string, patch: KanbanTaskPatch) => void;
+  moveKanbanTask: (taskId: string, nextStatus: KanbanTaskStatus) => { ok: boolean; reason?: string };
+  finalizeKanbanTask: (taskId: string) => { ok: boolean; reason?: string };
+  restoreKanbanTask: (historyId: string) => { ok: boolean; reason?: string };
   moveTask: (taskId: string, nextStatus: TaskStatus) => { ok: boolean; reason?: string };
   updateTask: (taskId: string, patch: Partial<Task>) => void;
   removeTask: (taskId: string) => { ok: boolean; reason?: string; removedTaskIds?: string[] };

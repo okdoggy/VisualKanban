@@ -3,7 +3,6 @@
 import {
   DndContext,
   DragOverlay,
-  KeyboardSensor,
   PointerSensor,
   closestCenter,
   type DragEndEvent,
@@ -12,84 +11,562 @@ import {
   useSensor,
   useSensors
 } from "@dnd-kit/core";
-import { useShallow } from "zustand/react/shallow";
-import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { CheckSquare2, GripVertical, Lock, Play, RotateCcw, Square, CheckCheck } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import {
+  CheckCheck,
+  CheckSquare2,
+  CirclePlus,
+  FolderKanban,
+  GripVertical,
+  Play,
+  RotateCcw,
+  Square,
+  UserCheck,
+  Users,
+  X
+} from "lucide-react";
+import { useRouter } from "next/navigation";
+import {
+  type FormEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState
+} from "react";
 import { toast } from "sonner";
+import { useShallow } from "zustand/react/shallow";
 import { FeatureAccessDenied } from "@/components/app/feature-access";
-import { PageHeader } from "@/components/app/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { canRead, canWrite } from "@/lib/permissions/roles";
 import { getCurrentUser, getEffectiveRoleForFeature, getVisibleTasks, useVisualKanbanStore } from "@/lib/store";
-import type { Task, TaskStatus } from "@/lib/types";
+import type { KanbanHistoryItem, Task, TaskStatus, User } from "@/lib/types";
 import { cn } from "@/lib/utils/cn";
 
-const COLUMNS: Array<{ id: TaskStatus; title: string; tone: "neutral" | "info" | "success" }> = [
+type KanbanStage = TaskStatus | "todo";
+
+type AssignmentViewMode = "all" | "assignee" | "assignee_or_participant";
+type SortMode = "updated" | "priority_asc" | "priority_desc" | "due_soon";
+type MoveSource = "drag" | "quick";
+
+type MutationResult = {
+  ok: boolean;
+  reason?: string;
+};
+
+type AddMutationResult = MutationResult & {
+  taskId?: string;
+};
+
+type TaskEditorDraft = {
+  title: string;
+  description: string;
+  stage: KanbanStage;
+  priority: number;
+  assigneeId: string;
+  ownerId: string;
+  participantIds: string[];
+  dueDate: string;
+  visibility: "shared" | "private";
+};
+
+type NormalizedHistoryEntry = {
+  historyId: string;
+  projectId: string;
+  task: Task;
+  finalizedAt: string;
+};
+
+type KanbanStoreExtension = {
+  kanbanHistory?: Array<Task | KanbanHistoryItem>;
+  addKanbanTask?: (input: Record<string, unknown>) => AddMutationResult | void;
+  updateKanbanTask?: (taskId: string, patch: Record<string, unknown>) => MutationResult | void;
+  finalizeKanbanTask?: (taskId: string) => MutationResult | void;
+  restoreKanbanTask?: (taskId: string) => MutationResult | void;
+};
+
+const COLUMNS: Array<{ id: KanbanStage; title: string; tone: "neutral" | "info" | "warning" | "success" }> = [
   { id: "backlog", title: "Backlog", tone: "neutral" },
+  { id: "todo", title: "To do", tone: "warning" },
   { id: "in_progress", title: "In Progress", tone: "info" },
   { id: "done", title: "Done", tone: "success" }
 ];
 
-const KEY_TO_STATUS: Record<string, TaskStatus> = {
-  b: "backlog",
-  i: "in_progress",
-  d: "done"
-};
-
-const STATUS_LABEL: Record<TaskStatus, string> = {
+const STAGE_LABEL: Record<KanbanStage, string> = {
   backlog: "Backlog",
+  todo: "To do",
   in_progress: "In Progress",
   done: "Done"
 };
 
-type UndoEntry = {
-  previous: Record<string, TaskStatus>;
-  timeoutId: ReturnType<typeof setTimeout>;
+const STAGE_BADGE_VARIANT: Record<KanbanStage, "neutral" | "info" | "warning" | "success"> = {
+  backlog: "neutral",
+  todo: "warning",
+  in_progress: "info",
+  done: "success"
 };
 
-type MoveRecord = {
-  taskId: string;
-  from: TaskStatus;
-  to: TaskStatus;
+const SOURCE_LABEL: Record<MoveSource, string> = {
+  drag: "drag",
+  quick: "quick"
 };
+
+const assignmentModeMeta: Record<
+  AssignmentViewMode,
+  {
+    label: string;
+    shortLabel: string;
+    icon: typeof FolderKanban | typeof UserCheck | typeof Users;
+  }
+> = {
+  all: {
+    label: "전체",
+    shortLabel: "전체",
+    icon: FolderKanban
+  },
+  assignee: {
+    label: "담당",
+    shortLabel: "담당",
+    icon: UserCheck
+  },
+  assignee_or_participant: {
+    label: "담당+참여",
+    shortLabel: "담당+참여",
+    icon: Users
+  }
+};
+
+const assignmentModeOrder: AssignmentViewMode[] = ["all", "assignee", "assignee_or_participant"];
+
+const sortModeMeta: Record<SortMode, { label: string; shortLabel: string }> = {
+  updated: {
+    label: "기본(최신업데이트순)",
+    shortLabel: "기본"
+  },
+  priority_asc: {
+    label: "우선순위순(1↑)",
+    shortLabel: "우선순위↑"
+  },
+  priority_desc: {
+    label: "우선순위역순(7↓)",
+    shortLabel: "우선순위↓"
+  },
+  due_soon: {
+    label: "마감임박순",
+    shortLabel: "마감임박"
+  }
+};
+
+const sortModeOrder: SortMode[] = ["updated", "priority_asc", "priority_desc", "due_soon"];
+
+const KANBAN_STAGE_TAG_PREFIX = "kanban-stage:";
+const KANBAN_PRIORITY_TAG_PREFIX = "kprio:";
+const TOOLBAR_CONTROL_CLASS =
+  "transition-[transform,box-shadow,background-color,border-color,color] duration-150 ease-out hover:-translate-y-0.5 hover:shadow-sm active:translate-y-0 motion-reduce:transform-none motion-reduce:transition-none";
+const CARD_INTERACTION_CLASS =
+  "transition-[box-shadow,border-color,background-color,opacity] duration-150 ease-out motion-reduce:transition-none";
 
 function isTaskStatus(value: string): value is TaskStatus {
   return value === "backlog" || value === "in_progress" || value === "done";
 }
 
-function getQuickAction(status: TaskStatus) {
-  if (status === "backlog") {
-    return { label: "Start", nextStatus: "in_progress" as TaskStatus, icon: Play };
-  }
-  if (status === "in_progress") {
-    return { label: "Done", nextStatus: "done" as TaskStatus, icon: CheckCheck };
-  }
-  return { label: "Reopen", nextStatus: "backlog" as TaskStatus, icon: RotateCcw };
+function isKanbanStage(value: string): value is KanbanStage {
+  return value === "todo" || isTaskStatus(value);
 }
 
-function postItTone(status: TaskStatus) {
-  if (status === "backlog") {
-    return "border-amber-300 bg-gradient-to-br from-amber-100 to-amber-50 dark:border-amber-700 dark:from-amber-900/55 dark:to-amber-950/35";
+function sanitizePriority(value: number) {
+  return Math.min(7, Math.max(1, Math.trunc(value)));
+}
+
+function normalizeResult(result: unknown): MutationResult {
+  if (typeof result === "object" && result !== null && "ok" in result) {
+    const casted = result as { ok?: unknown; reason?: unknown };
+    return {
+      ok: Boolean(casted.ok),
+      reason: typeof casted.reason === "string" ? casted.reason : undefined
+    };
   }
-  if (status === "in_progress") {
-    return "border-sky-300 bg-gradient-to-br from-sky-100 to-sky-50 dark:border-sky-700 dark:from-sky-900/55 dark:to-sky-950/35";
+  return { ok: true };
+}
+
+function normalizeAddResult(result: unknown): AddMutationResult {
+  const normalized = normalizeResult(result);
+  if (typeof result === "object" && result !== null && "taskId" in result) {
+    const taskId = (result as { taskId?: unknown }).taskId;
+    return {
+      ...normalized,
+      taskId: typeof taskId === "string" ? taskId : undefined
+    };
   }
-  return "border-emerald-300 bg-gradient-to-br from-emerald-100 to-emerald-50 dark:border-emerald-700 dark:from-emerald-900/55 dark:to-emerald-950/35";
+  return normalized;
+}
+
+function normalizeTags(tags: unknown): string[] {
+  if (!Array.isArray(tags)) return [];
+  return [...new Set(tags.filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0).map((tag) => tag.trim()))];
+}
+
+function readKanbanStage(task: Task): KanbanStage {
+  const stageTag = normalizeTags(task.tags).find((tag) => tag.startsWith(KANBAN_STAGE_TAG_PREFIX));
+  if (stageTag) {
+    const raw = stageTag.slice(KANBAN_STAGE_TAG_PREFIX.length);
+    if (isKanbanStage(raw)) {
+      return raw;
+    }
+  }
+
+  const rawStatus = String((task as { status?: unknown }).status ?? "");
+  if (isKanbanStage(rawStatus)) {
+    return rawStatus;
+  }
+
+  return "backlog";
+}
+
+function setKanbanStageTag(tags: unknown, stage: KanbanStage) {
+  const base = normalizeTags(tags).filter((tag) => !tag.startsWith(KANBAN_STAGE_TAG_PREFIX));
+  if (stage === "todo") {
+    base.push(`${KANBAN_STAGE_TAG_PREFIX}todo`);
+  }
+  return base;
+}
+
+function readKanbanPriority(task: Task): number {
+  const priorityTag = normalizeTags(task.tags).find((tag) => tag.startsWith(KANBAN_PRIORITY_TAG_PREFIX));
+  if (priorityTag) {
+    const parsed = Number(priorityTag.slice(KANBAN_PRIORITY_TAG_PREFIX.length));
+    if (Number.isFinite(parsed)) {
+      return sanitizePriority(parsed);
+    }
+  }
+
+  const rawPriority = (task as { priority?: unknown }).priority;
+  if (typeof rawPriority === "number" && Number.isFinite(rawPriority)) {
+    return sanitizePriority(rawPriority);
+  }
+
+  if (typeof rawPriority === "string") {
+    const parsed = Number(rawPriority);
+    if (Number.isFinite(parsed)) {
+      return sanitizePriority(parsed);
+    }
+    if (rawPriority === "high") return 1;
+    if (rawPriority === "medium") return 4;
+    if (rawPriority === "low") return 7;
+  }
+
+  return 4;
+}
+
+function numberToLegacyPriority(priority: number): Task["priority"] {
+  const normalized = sanitizePriority(priority);
+  if (normalized <= 2) return "high";
+  if (normalized <= 5) return "medium";
+  return "low";
+}
+
+function setKanbanPriorityTag(tags: unknown, priority: number) {
+  const base = normalizeTags(tags).filter((tag) => !tag.startsWith(KANBAN_PRIORITY_TAG_PREFIX));
+  base.push(`${KANBAN_PRIORITY_TAG_PREFIX}${sanitizePriority(priority)}`);
+  return base;
+}
+
+function buildKanbanTags(tags: unknown, stage: KanbanStage, priority: number) {
+  return setKanbanPriorityTag(setKanbanStageTag(tags, stage), priority);
+}
+
+function readTaskParticipantIds(task: Task) {
+  const raw = Array.isArray(task.participantIds) ? task.participantIds : [];
+  const normalized = [...new Set(raw.filter((value): value is string => typeof value === "string" && value.trim().length > 0).map((value) => value.trim()))];
+
+  if (task.assigneeId && !normalized.includes(task.assigneeId)) {
+    normalized.unshift(task.assigneeId);
+  }
+
+  return normalized;
+}
+
+function ensureAssigneeInParticipants(participantIds: string[], assigneeId: string) {
+  const deduped = [...new Set(participantIds.filter((id) => id.trim().length > 0))];
+  if (assigneeId && !deduped.includes(assigneeId)) {
+    deduped.unshift(assigneeId);
+  }
+  return deduped;
+}
+
+function formatDateTime(value: string | undefined) {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "-";
+  return parsed.toLocaleString("ko-KR");
+}
+
+function formatDate(value: string | undefined) {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "-";
+  return parsed.toLocaleDateString("ko-KR");
+}
+
+function toDateInputValue(value: string | undefined) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
+}
+
+function dateInputToIso(value: string) {
+  if (!value) return "";
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString();
+}
+
+function dueTimestamp(task: Task) {
+  if (!task.dueDate) return Number.POSITIVE_INFINITY;
+  const parsed = new Date(task.dueDate).getTime();
+  if (Number.isNaN(parsed)) return Number.POSITIVE_INFINITY;
+  return parsed;
+}
+
+function historyTimestamp(value: string | undefined) {
+  if (!value) return 0;
+  const parsed = new Date(value).getTime();
+  if (Number.isNaN(parsed)) return 0;
+  return parsed;
+}
+
+function normalizeHistoryEntry(item: Task | KanbanHistoryItem): NormalizedHistoryEntry | null {
+  if (!item || typeof item !== "object") return null;
+
+  if ("task" in item) {
+    const task = item.task;
+    if (!task) return null;
+    return {
+      historyId: item.id,
+      projectId: item.projectId,
+      task,
+      finalizedAt: item.finalizedAt
+    };
+  }
+
+  return {
+    historyId: item.id,
+    projectId: item.projectId,
+    task: item,
+    finalizedAt: item.updatedAt
+  };
+}
+
+function compareTasks(a: Task, b: Task, sortMode: SortMode) {
+  const updatedDiff = new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+
+  if (sortMode === "updated") {
+    return updatedDiff;
+  }
+
+  if (sortMode === "priority_asc") {
+    const diff = readKanbanPriority(a) - readKanbanPriority(b);
+    return diff !== 0 ? diff : updatedDiff;
+  }
+
+  if (sortMode === "priority_desc") {
+    const diff = readKanbanPriority(b) - readKanbanPriority(a);
+    return diff !== 0 ? diff : updatedDiff;
+  }
+
+  const dueDiff = dueTimestamp(a) - dueTimestamp(b);
+  return Number.isFinite(dueDiff) && dueDiff !== 0 ? dueDiff : updatedDiff;
+}
+
+function taskSurfaceTone(stage: KanbanStage) {
+  if (stage === "backlog") {
+    return "border-zinc-200/85 bg-zinc-50/72 dark:border-zinc-700 dark:bg-zinc-900/35";
+  }
+  if (stage === "todo") {
+    return "border-amber-200/85 bg-amber-50/75 dark:border-amber-800/75 dark:bg-amber-950/25";
+  }
+  if (stage === "in_progress") {
+    return "border-sky-200/85 bg-sky-50/72 dark:border-sky-800/75 dark:bg-sky-950/25";
+  }
+  return "border-emerald-200/85 bg-emerald-50/75 dark:border-emerald-800/75 dark:bg-emerald-950/25";
+}
+
+function taskAccentTone(stage: KanbanStage) {
+  if (stage === "backlog") {
+    return "bg-zinc-400/80 dark:bg-zinc-500/75";
+  }
+  if (stage === "todo") {
+    return "bg-amber-500/80 dark:bg-amber-400/80";
+  }
+  if (stage === "in_progress") {
+    return "bg-sky-500/80 dark:bg-sky-400/80";
+  }
+  return "bg-emerald-500/80 dark:bg-emerald-400/80";
+}
+
+function getQuickAction(stage: KanbanStage) {
+  if (stage === "backlog") {
+    return { label: "To do", nextStage: "todo" as KanbanStage, icon: Play };
+  }
+  if (stage === "todo") {
+    return { label: "Start", nextStage: "in_progress" as KanbanStage, icon: Play };
+  }
+  if (stage === "in_progress") {
+    return { label: "Done", nextStage: "done" as KanbanStage, icon: CheckCheck };
+  }
+  return { label: "Reopen", nextStage: "todo" as KanbanStage, icon: RotateCcw };
+}
+
+function defaultDueDateInput() {
+  const nextWeek = new Date();
+  nextWeek.setDate(nextWeek.getDate() + 7);
+  return nextWeek.toISOString().slice(0, 10);
+}
+
+function createNewTaskDraft(projectId: string, currentUserId: string | null, users: User[]): TaskEditorDraft {
+  const fallbackUserId = currentUserId ?? users[0]?.id ?? "";
+  return {
+    title: "",
+    description: "",
+    stage: "todo",
+    priority: 4,
+    assigneeId: fallbackUserId,
+    ownerId: fallbackUserId,
+    participantIds: fallbackUserId ? [fallbackUserId] : [],
+    dueDate: defaultDueDateInput(),
+    visibility: "shared"
+  };
+}
+
+function createDetailDraft(task: Task): TaskEditorDraft {
+  const stage = readKanbanStage(task);
+  const assigneeId = task.assigneeId;
+  const participantIds = ensureAssigneeInParticipants(readTaskParticipantIds(task), assigneeId);
+
+  return {
+    title: task.title,
+    description: task.description,
+    stage,
+    priority: readKanbanPriority(task),
+    assigneeId,
+    ownerId: task.ownerId,
+    participantIds,
+    dueDate: toDateInputValue(task.dueDate),
+    visibility: task.visibility
+  };
+}
+
+function PopupShell({
+  open,
+  onClose,
+  title,
+  description,
+  widthClassName = "max-w-2xl",
+  children
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  description?: string;
+  widthClassName?: string;
+  children: ReactNode;
+}) {
+  const prefersReducedMotion = useReducedMotion();
+
+  const backdropTransition = prefersReducedMotion ? { duration: 0 } : { duration: 0.16, ease: "easeOut" as const };
+  const panelTransition = prefersReducedMotion ? { duration: 0 } : { duration: 0.2, ease: "easeOut" as const };
+
+  return (
+    <AnimatePresence>
+      {open ? (
+        <motion.div
+          className="fixed inset-0 z-[120] flex items-center justify-center p-4"
+          initial={{ opacity: 1 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 1 }}
+          transition={{ duration: 0 }}
+        >
+          <motion.button
+            type="button"
+            className="absolute inset-0 bg-black/45 backdrop-blur-[1px]"
+            onClick={onClose}
+            aria-label={`${title} 닫기`}
+            initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={prefersReducedMotion ? { opacity: 1 } : { opacity: 0 }}
+            transition={backdropTransition}
+          />
+
+          <motion.div
+            className={cn("relative w-full rounded-xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900", widthClassName)}
+            initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: 10, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: 8, scale: 0.985 }}
+            transition={panelTransition}
+          >
+            <div className="flex items-start justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-semibold">{title}</h2>
+                {description ? <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{description}</p> : null}
+              </div>
+              <Button type="button" size="icon" variant="ghost" onClick={onClose}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="max-h-[78vh] overflow-auto p-4">{children}</div>
+          </motion.div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
 }
 
 export function KanbanBoard({ projectId }: { projectId: string }) {
-  const { projects, tasks, users, permissions, currentUserId, moveTask } = useVisualKanbanStore(useShallow((state) => ({
-    projects: state.projects,
-    tasks: state.tasks,
-    users: state.users,
-    permissions: state.permissions,
-    currentUserId: state.currentUserId,
-    moveTask: state.moveTask
-  })));
+  const router = useRouter();
+
+  const {
+    projects,
+    kanbanTasks,
+    kanbanHistory,
+    users,
+    permissions,
+    currentUserId,
+    moveKanbanTask,
+    addProject,
+    addTask,
+    updateTask,
+    addKanbanTask,
+    updateKanbanTask,
+    finalizeKanbanTask,
+    restoreKanbanTask
+  } = useVisualKanbanStore(
+    useShallow((state) => {
+      const extended = state as typeof state & KanbanStoreExtension;
+      return {
+        projects: state.projects,
+        kanbanTasks: state.kanbanTasks,
+        kanbanHistory: extended.kanbanHistory ?? [],
+        users: state.users,
+        permissions: state.permissions,
+        currentUserId: state.currentUserId,
+        moveKanbanTask: state.moveKanbanTask,
+        addProject: state.addProject,
+        addTask: state.addTask,
+        updateTask: state.updateTask,
+        addKanbanTask: extended.addKanbanTask,
+        updateKanbanTask: extended.updateKanbanTask,
+        finalizeKanbanTask: extended.finalizeKanbanTask,
+        restoreKanbanTask: extended.restoreKanbanTask
+      };
+    })
+  );
 
   const project = useMemo(() => projects.find((item) => item.id === projectId) ?? null, [projects, projectId]);
   const currentUser = useMemo(() => getCurrentUser(users, currentUserId), [users, currentUserId]);
@@ -108,9 +585,17 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
   const readable = canRead(role);
   const writable = canWrite(role);
 
-  const projectTasks = useMemo(() => tasks.filter((task) => task.projectId === projectId), [tasks, projectId]);
+  const projectTasks = useMemo(() => kanbanTasks.filter((task) => task.projectId === projectId), [projectId, kanbanTasks]);
+  const normalizedHistoryEntries = useMemo(
+    () => (kanbanHistory as Array<Task | KanbanHistoryItem>).map((item) => normalizeHistoryEntry(item)).filter((item): item is NormalizedHistoryEntry => item !== null),
+    [kanbanHistory]
+  );
+  const projectHistoryEntries = useMemo(
+    () => normalizedHistoryEntries.filter((entry) => entry.projectId === projectId),
+    [normalizedHistoryEntries, projectId]
+  );
 
-  const visibleTasks = useMemo(
+  const permissionFilteredTasks = useMemo(
     () =>
       getVisibleTasks({
         tasks: projectTasks,
@@ -120,16 +605,89 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
     [projectTasks, currentUser, role]
   );
 
-  const taskMap = useMemo(() => new Map(visibleTasks.map((task) => [task.id, task])), [visibleTasks]);
+  const permissionFilteredHistory = useMemo(
+    () =>
+      getVisibleTasks({
+        tasks: projectHistoryEntries.map((entry) => entry.task),
+        user: currentUser,
+        role
+      }),
+    [projectHistoryEntries, currentUser, role]
+  );
 
-  const tasksByStatus = useMemo(() => {
-    const sorted = [...visibleTasks].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-    return {
-      backlog: sorted.filter((task) => task.status === "backlog"),
-      in_progress: sorted.filter((task) => task.status === "in_progress"),
-      done: sorted.filter((task) => task.status === "done")
-    } as Record<TaskStatus, Task[]>;
-  }, [visibleTasks]);
+  const [assignmentViewMode, setAssignmentViewMode] = useState<AssignmentViewMode>("all");
+  const [highlightMyAssignments, setHighlightMyAssignments] = useState(false);
+  const [sortMode, setSortMode] = useState<SortMode>("updated");
+  const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+
+  const [projectPopupOpen, setProjectPopupOpen] = useState(false);
+  const [addTaskPopupOpen, setAddTaskPopupOpen] = useState(false);
+  const [historyPopupOpen, setHistoryPopupOpen] = useState(false);
+  const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
+
+  const [newProjectForm, setNewProjectForm] = useState({
+    name: "",
+    description: ""
+  });
+
+  const [newTaskDraft, setNewTaskDraft] = useState<TaskEditorDraft>(() => createNewTaskDraft(projectId, currentUserId, users));
+  const [detailDraft, setDetailDraft] = useState<TaskEditorDraft | null>(null);
+
+  const visibleTasks = useMemo(() => {
+    if (!currentUserId || assignmentViewMode === "all") {
+      return permissionFilteredTasks;
+    }
+
+    return permissionFilteredTasks.filter((task) => {
+      if (assignmentViewMode === "assignee") {
+        return task.assigneeId === currentUserId;
+      }
+      const participants = readTaskParticipantIds(task);
+      return task.assigneeId === currentUserId || participants.includes(currentUserId);
+    });
+  }, [assignmentViewMode, currentUserId, permissionFilteredTasks]);
+
+  const visibleTaskMap = useMemo(() => new Map(permissionFilteredTasks.map((task) => [task.id, task])), [permissionFilteredTasks]);
+  const filteredTaskMap = useMemo(() => new Map(visibleTasks.map((task) => [task.id, task])), [visibleTasks]);
+
+  const sortedVisibleTasks = useMemo(() => {
+    const copied = [...visibleTasks];
+    copied.sort((a, b) => compareTasks(a, b, sortMode));
+    return copied;
+  }, [sortMode, visibleTasks]);
+
+  const tasksByStage = useMemo(() => {
+    const grouped: Record<KanbanStage, Task[]> = {
+      backlog: [],
+      todo: [],
+      in_progress: [],
+      done: []
+    };
+
+    for (const task of sortedVisibleTasks) {
+      const stage = readKanbanStage(task);
+      grouped[stage].push(task);
+    }
+
+    return grouped;
+  }, [sortedVisibleTasks]);
+
+  const historyItems = useMemo(() => {
+    const visibleTaskIdSet = new Set(permissionFilteredHistory.map((task) => task.id));
+    return projectHistoryEntries
+      .filter((entry) => visibleTaskIdSet.has(entry.task.id))
+      .sort((a, b) => historyTimestamp(b.finalizedAt) - historyTimestamp(a.finalizedAt))
+      .slice(0, 20);
+  }, [permissionFilteredHistory, projectHistoryEntries]);
+
+  const userById = useMemo(() => {
+    const map = new Map<string, User>();
+    for (const user of users) {
+      map.set(user.id, user);
+    }
+    return map;
+  }, [users]);
 
   const userDisplayById = useMemo(() => {
     return users.reduce<Record<string, string>>((acc, user) => {
@@ -138,145 +696,160 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
     }, {});
   }, [users]);
 
-  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
-  const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
-  const [activeDragId, setActiveDragId] = useState<string | null>(null);
-  const undoRef = useRef<Map<string, UndoEntry>>(new Map());
+  const effectiveFocusedTaskId = focusedTaskId && filteredTaskMap.has(focusedTaskId) ? focusedTaskId : null;
 
-  const selectedIds = useMemo(() => Array.from(selectedTaskIds).filter((id) => taskMap.has(id)), [selectedTaskIds, taskMap]);
-  const effectiveFocusedTaskId = focusedTaskId && taskMap.has(focusedTaskId) ? focusedTaskId : null;
+  const detailTask = useMemo(() => (detailTaskId ? visibleTaskMap.get(detailTaskId) ?? null : null), [detailTaskId, visibleTaskMap]);
 
   useEffect(() => {
-    const undoEntries = undoRef.current;
-    return () => {
-      undoEntries.forEach((entry) => clearTimeout(entry.timeoutId));
-      undoEntries.clear();
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (detailTaskId) {
+        setDetailTaskId(null);
+        setDetailDraft(null);
+        return;
+      }
+      if (addTaskPopupOpen) {
+        setAddTaskPopupOpen(false);
+        return;
+      }
+      if (historyPopupOpen) {
+        setHistoryPopupOpen(false);
+        return;
+      }
+      if (projectPopupOpen) {
+        setProjectPopupOpen(false);
+      }
     };
-  }, []);
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [addTaskPopupOpen, detailTaskId, historyPopupOpen, projectPopupOpen]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
         distance: 6
       }
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates
     })
   );
 
+  const patchKanbanTask = useCallback(
+    (taskId: string, patch: Record<string, unknown>) => {
+      if (updateKanbanTask) {
+        return normalizeResult(updateKanbanTask(taskId, patch));
+      }
+      if (updateTask) {
+        updateTask(taskId, patch as Partial<Task>);
+        return { ok: true } as MutationResult;
+      }
+      return {
+        ok: false,
+        reason: "스토어에서 태스크 수정 함수를 찾을 수 없습니다."
+      } as MutationResult;
+    },
+    [updateKanbanTask, updateTask]
+  );
+
+  const createKanbanTask = useCallback(
+    (input: Record<string, unknown>) => {
+      if (addKanbanTask) {
+        return normalizeAddResult(addKanbanTask(input));
+      }
+      if (addTask) {
+        addTask(input as never);
+        return { ok: true } as AddMutationResult;
+      }
+      return {
+        ok: false,
+        reason: "스토어에서 태스크 생성 함수를 찾을 수 없습니다."
+      } as AddMutationResult;
+    },
+    [addKanbanTask, addTask]
+  );
+
+  const moveTaskStage = useCallback(
+    (task: Task, nextStage: KanbanStage): MutationResult => {
+      const currentStage = readKanbanStage(task);
+      if (currentStage === nextStage) {
+        return { ok: true };
+      }
+
+      return normalizeResult(moveKanbanTask(task.id, nextStage));
+    },
+    [moveKanbanTask]
+  );
+
   const applyMoves = useCallback(
-    (taskIds: string[], nextStatus: TaskStatus, source: "drag" | "quick" | "bulk" | "keyboard") => {
+    (taskIds: string[], nextStage: KanbanStage, source: MoveSource) => {
       if (!writable) {
-        toast.warning("Viewer role is read-only. You can review tasks but cannot move them.");
+        toast.warning("읽기 전용 권한에서는 상태를 변경할 수 없습니다.");
         return;
       }
 
-      const uniqueIds = Array.from(new Set(taskIds));
-      const plannedMoves = uniqueIds
-        .map((taskId) => {
-          const task = taskMap.get(taskId);
-          if (!task || task.status === nextStatus) return null;
-          return {
-            taskId,
-            from: task.status,
-            to: nextStatus
-          } as MoveRecord;
-        })
-        .filter((item): item is MoveRecord => item !== null);
-
-      if (plannedMoves.length === 0) {
-        return;
-      }
-
-      const successful: MoveRecord[] = [];
+      const uniqueIds = [...new Set(taskIds)];
       const failures: string[] = [];
+      let movedCount = 0;
 
-      plannedMoves.forEach((move) => {
-        const result = moveTask(move.taskId, move.to);
+      uniqueIds.forEach((taskId) => {
+        const task = visibleTaskMap.get(taskId);
+        if (!task) return;
+
+        const result = moveTaskStage(task, nextStage);
         if (result.ok) {
-          successful.push(move);
+          movedCount += 1;
         } else {
-          failures.push(result.reason ?? move.taskId);
+          failures.push(result.reason ?? taskId);
         }
       });
 
-      if (successful.length > 0) {
-        const token = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        const previous: Record<string, TaskStatus> = {};
-        successful.forEach((move) => {
-          previous[move.taskId] = move.from;
-        });
-
-        const timeoutId = setTimeout(() => {
-          undoRef.current.delete(token);
-        }, 6000);
-
-        undoRef.current.set(token, { previous, timeoutId });
-
-        toast.success(
-          `${successful.length} task${successful.length > 1 ? "s" : ""} moved to ${STATUS_LABEL[nextStatus]}.`,
-          {
-            duration: 6000,
-            action: {
-              label: "Undo",
-              onClick: () => {
-                const entry = undoRef.current.get(token);
-                if (!entry) return;
-
-                clearTimeout(entry.timeoutId);
-                undoRef.current.delete(token);
-
-                const undoErrors: string[] = [];
-                Object.entries(entry.previous).forEach(([taskId, previousStatus]) => {
-                  const result = moveTask(taskId, previousStatus);
-                  if (!result.ok) {
-                    undoErrors.push(result.reason ?? taskId);
-                  }
-                });
-
-                if (undoErrors.length > 0) {
-                  toast.error(`Undo failed for ${undoErrors.length} task(s).`);
-                  return;
-                }
-
-                toast.message("Move undone.");
-              }
-            }
-          }
-        );
+      if (movedCount > 0) {
+        toast.success(`${movedCount}개 작업을 ${STAGE_LABEL[nextStage]}로 이동했습니다. (${SOURCE_LABEL[source]})`);
       }
 
       if (failures.length > 0) {
-        toast.error(`Failed to move ${failures.length} task(s).`);
-      }
-
-      if (source === "quick") {
-        setSelectedTaskIds(new Set());
+        toast.error(`이동 실패 ${failures.length}건: ${failures[0] ?? "알 수 없는 오류"}`);
       }
     },
-    [moveTask, taskMap, writable]
+    [moveTaskStage, visibleTaskMap, writable]
   );
 
-  const onToggleTaskSelection = useCallback((taskId: string) => {
-    setSelectedTaskIds((previous) => {
-      const next = new Set(previous);
-      if (next.has(taskId)) {
-        next.delete(taskId);
-      } else {
-        next.add(taskId);
-      }
-      return next;
+  const cycleAssignmentViewMode = useCallback(() => {
+    setAssignmentViewMode((previous) => {
+      const currentIndex = assignmentModeOrder.indexOf(previous);
+      return assignmentModeOrder[(currentIndex + 1) % assignmentModeOrder.length] ?? "all";
     });
   }, []);
 
-  const onSelectAll = useCallback(() => {
-    setSelectedTaskIds(new Set(visibleTasks.map((task) => task.id)));
-  }, [visibleTasks]);
-
-  const onClearSelection = useCallback(() => {
-    setSelectedTaskIds(new Set());
+  const cycleSortMode = useCallback(() => {
+    setSortMode((previous) => {
+      const currentIndex = sortModeOrder.indexOf(previous);
+      return sortModeOrder[(currentIndex + 1) % sortModeOrder.length] ?? "updated";
+    });
   }, []);
+
+  const openAddTaskPopup = useCallback(() => {
+    setNewTaskDraft(createNewTaskDraft(projectId, currentUserId, users));
+    setAddTaskPopupOpen(true);
+  }, [currentUserId, projectId, users]);
+
+  const isAssignedToCurrentUser = useCallback(
+    (task: Task) => {
+      if (!currentUserId) return false;
+      const participants = readTaskParticipantIds(task);
+      return task.assigneeId === currentUserId || participants.includes(currentUserId);
+    },
+    [currentUserId]
+  );
+
+  const openDetailPopup = useCallback(
+    (taskId: string) => {
+      const target = visibleTaskMap.get(taskId);
+      if (!target) return;
+      setDetailTaskId(taskId);
+      setDetailDraft(createDetailDraft(target));
+    },
+    [visibleTaskMap]
+  );
 
   const onDragStart = useCallback((event: DragStartEvent) => {
     setActiveDragId(String(event.active.id));
@@ -291,54 +864,245 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
       if (!over) return;
 
       const activeId = String(active.id);
-      const draggedTask = taskMap.get(activeId);
+      const draggedTask = visibleTaskMap.get(activeId);
       if (!draggedTask) return;
 
       const overId = String(over.id);
-      const destinationStatus: TaskStatus | undefined = isTaskStatus(overId) ? overId : taskMap.get(overId)?.status;
+      const destinationStage: KanbanStage | undefined = isKanbanStage(overId)
+        ? overId
+        : (() => {
+            const overTask = visibleTaskMap.get(overId);
+            return overTask ? readKanbanStage(overTask) : undefined;
+          })();
 
-      if (!destinationStatus || destinationStatus === draggedTask.status) {
+      if (!destinationStage || destinationStage === readKanbanStage(draggedTask)) {
         return;
       }
 
-      const dragSelection = selectedTaskIds.has(activeId) ? Array.from(selectedTaskIds) : [activeId];
-      applyMoves(dragSelection, destinationStatus, "drag");
+      applyMoves([activeId], destinationStage, "drag");
     },
-    [applyMoves, selectedTaskIds, taskMap, writable]
+    [applyMoves, visibleTaskMap, writable]
   );
 
-  const onBoardKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (!writable) return;
-
-      const target = event.target as HTMLElement;
-      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable) {
+  const handleSelectProject = useCallback(
+    (nextProjectId: string) => {
+      if (nextProjectId === projectId) {
+        setProjectPopupOpen(false);
         return;
       }
 
-      const nextStatus = KEY_TO_STATUS[event.key.toLowerCase()];
-      if (!nextStatus) {
-        return;
-      }
+      setProjectPopupOpen(false);
+      setDetailTaskId(null);
+      setDetailDraft(null);
+      setAddTaskPopupOpen(false);
+      setHistoryPopupOpen(false);
+      router.push(`/app/projects/${nextProjectId}/kanban`);
+    },
+    [projectId, router]
+  );
 
-      const targets = selectedIds.length > 0 ? selectedIds : effectiveFocusedTaskId ? [effectiveFocusedTaskId] : [];
-      if (targets.length === 0) {
-        return;
-      }
-
+  const handleCreateProject = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      applyMoves(targets, nextStatus, "keyboard");
+
+      if (!writable) {
+        toast.warning("읽기 전용 모드에서는 프로젝트를 추가할 수 없습니다.");
+        return;
+      }
+
+      const result = addProject({
+        name: newProjectForm.name,
+        description: newProjectForm.description
+      });
+
+      if (!result.ok || !result.projectId) {
+        toast.error(result.reason ?? "프로젝트를 추가하지 못했습니다.");
+        return;
+      }
+
+      toast.success("새 프로젝트를 만들었습니다.");
+      setNewProjectForm({ name: "", description: "" });
+      setProjectPopupOpen(false);
+      router.push(`/app/projects/${result.projectId}/kanban`);
     },
-    [applyMoves, effectiveFocusedTaskId, selectedIds, writable]
+    [addProject, newProjectForm.description, newProjectForm.name, router, writable]
   );
 
-  const activeTask = activeDragId ? taskMap.get(activeDragId) ?? null : null;
+  const handleCreateTask = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+
+      if (!writable) {
+        toast.warning("읽기 전용 모드에서는 작업을 추가할 수 없습니다.");
+        return;
+      }
+
+      if (!newTaskDraft.title.trim()) {
+        toast.warning("작업 제목을 입력해 주세요.");
+        return;
+      }
+
+      if (!newTaskDraft.assigneeId) {
+        toast.warning("담당자를 선택해 주세요.");
+        return;
+      }
+
+      const dueDateIso = dateInputToIso(newTaskDraft.dueDate);
+      if (!dueDateIso) {
+        toast.warning("유효한 마감일을 입력해 주세요.");
+        return;
+      }
+
+      const participantIds = ensureAssigneeInParticipants(newTaskDraft.participantIds, newTaskDraft.assigneeId);
+      const payload: Record<string, unknown> = {
+        projectId,
+        title: newTaskDraft.title.trim(),
+        description: newTaskDraft.description.trim(),
+        status: newTaskDraft.stage,
+        priority: numberToLegacyPriority(newTaskDraft.priority),
+        assigneeId: newTaskDraft.assigneeId,
+        participantIds,
+        ownerId: newTaskDraft.ownerId || newTaskDraft.assigneeId,
+        reporterId: currentUserId ?? newTaskDraft.assigneeId,
+        dueDate: dueDateIso,
+        visibility: newTaskDraft.visibility,
+        tags: buildKanbanTags([], newTaskDraft.stage, newTaskDraft.priority)
+      };
+
+      const result = createKanbanTask(payload);
+      if (!result.ok) {
+        toast.error(result.reason ?? "작업을 추가하지 못했습니다.");
+        return;
+      }
+
+      toast.success("작업을 추가했습니다.");
+      setAddTaskPopupOpen(false);
+      setNewTaskDraft(createNewTaskDraft(projectId, currentUserId, users));
+    },
+    [createKanbanTask, currentUserId, newTaskDraft, projectId, users, writable]
+  );
+
+  const handleSaveDetail = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+
+      if (!detailTask || !detailDraft) {
+        return;
+      }
+
+      if (!writable) {
+        toast.warning("읽기 전용 모드에서는 수정할 수 없습니다.");
+        return;
+      }
+
+      if (!detailDraft.title.trim()) {
+        toast.warning("작업 제목을 입력해 주세요.");
+        return;
+      }
+
+      if (!detailDraft.assigneeId) {
+        toast.warning("담당자를 선택해 주세요.");
+        return;
+      }
+
+      const dueDateIso = dateInputToIso(detailDraft.dueDate);
+      if (!dueDateIso) {
+        toast.warning("유효한 마감일을 입력해 주세요.");
+        return;
+      }
+
+      const participantIds = ensureAssigneeInParticipants(detailDraft.participantIds, detailDraft.assigneeId);
+      const currentStage = readKanbanStage(detailTask);
+      const nextStage = detailDraft.stage;
+
+      if (currentStage !== nextStage) {
+        const moveResult = moveTaskStage(detailTask, nextStage);
+        if (!moveResult.ok) {
+          toast.error(moveResult.reason ?? "상태를 변경하지 못했습니다.");
+          return;
+        }
+      }
+
+      const patchResult = patchKanbanTask(detailTask.id, {
+        title: detailDraft.title.trim(),
+        description: detailDraft.description.trim(),
+        assigneeId: detailDraft.assigneeId,
+        ownerId: detailDraft.ownerId || detailDraft.assigneeId,
+        participantIds,
+        dueDate: dueDateIso,
+        visibility: detailDraft.visibility,
+        status: detailDraft.stage,
+        priority: numberToLegacyPriority(detailDraft.priority),
+        tags: buildKanbanTags(detailTask.tags, detailDraft.stage, detailDraft.priority)
+      });
+
+      if (!patchResult.ok) {
+        toast.error(patchResult.reason ?? "작업을 업데이트하지 못했습니다.");
+        return;
+      }
+
+      toast.success("작업을 업데이트했습니다.");
+      setDetailTaskId(null);
+      setDetailDraft(null);
+    },
+    [detailDraft, detailTask, moveTaskStage, patchKanbanTask, writable]
+  );
+
+  const handleFinalizeTask = useCallback(
+    (taskId: string) => {
+      if (!writable) {
+        toast.warning("읽기 전용 모드에서는 최종완료를 처리할 수 없습니다.");
+        return;
+      }
+
+      if (!finalizeKanbanTask) {
+        toast.error("스토어에서 finalizeKanbanTask를 찾지 못했습니다.");
+        return;
+      }
+
+      const result = normalizeResult(finalizeKanbanTask(taskId));
+      if (!result.ok) {
+        toast.error(result.reason ?? "최종완료 처리에 실패했습니다.");
+        return;
+      }
+
+      toast.success("작업을 히스토리로 이동했습니다.");
+    },
+    [finalizeKanbanTask, writable]
+  );
+
+  const handleRestoreTask = useCallback(
+    (taskId: string) => {
+      if (!writable) {
+        toast.warning("읽기 전용 모드에서는 복원할 수 없습니다.");
+        return;
+      }
+
+      if (!restoreKanbanTask) {
+        toast.error("스토어에서 restoreKanbanTask를 찾지 못했습니다.");
+        return;
+      }
+
+      const result = normalizeResult(restoreKanbanTask(taskId));
+      if (!result.ok) {
+        toast.error(result.reason ?? "히스토리 복원에 실패했습니다.");
+        return;
+      }
+
+      toast.success("작업을 Done으로 복원했습니다.");
+    },
+    [restoreKanbanTask, writable]
+  );
+
+  const activeTask = activeDragId ? filteredTaskMap.get(activeDragId) ?? visibleTaskMap.get(activeDragId) ?? null : null;
 
   if (!project) {
     return (
       <Card>
         <CardTitle>Project not found</CardTitle>
-        <CardDescription className="mt-1">The project ID <code>{projectId}</code> does not exist.</CardDescription>
+        <CardDescription className="mt-1">
+          The project ID <code>{projectId}</code> does not exist.
+        </CardDescription>
       </Card>
     );
   }
@@ -352,94 +1116,620 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
     );
   }
 
+  const assignmentMode = assignmentModeMeta[assignmentViewMode];
+  const AssignmentModeIcon = assignmentMode.icon;
+
   return (
-    <section onKeyDown={onBoardKeyDown} className="space-y-4" aria-label="Kanban board">
-      <PageHeader
-        title={`${project.name} Kanban`}
-        description="Drag & drop, quick actions, multi-select bulk controls, and keyboard shortcuts (I / D / B)."
-        role={role}
-        actions={
-          <div className="flex items-center gap-2">
-            {role === "private" ? <Badge variant="warning">Private scope</Badge> : null}
-            <Badge variant={writable ? "success" : "warning"}>{writable ? "Editable" : "Read-only"}</Badge>
-          </div>
-        }
-      />
+    <section className="space-y-3" aria-label="Kanban board">
+      <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-zinc-200/80 bg-white/90 px-2.5 py-2 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/65">
+        <Button
+          size="sm"
+          variant={projectPopupOpen ? "secondary" : "outline"}
+          className={cn("h-7 max-w-[220px] gap-1 px-2 text-xs", TOOLBAR_CONTROL_CLASS)}
+          onClick={() => setProjectPopupOpen((previous) => !previous)}
+          title="프로젝트 선택/추가"
+        >
+          <FolderKanban className="h-3.5 w-3.5" />
+          <span className="truncate">{project.name}</span>
+        </Button>
 
-      {!writable ? (
-        <Card className="border-amber-200 bg-amber-50/70 dark:border-amber-900 dark:bg-amber-950/20">
-          <div className="flex items-start gap-2">
-            <Lock className="mt-0.5 h-4 w-4 text-amber-600" />
-            <div>
-              <CardTitle className="text-amber-900 dark:text-amber-100">Viewer mode (read-only)</CardTitle>
-              <CardDescription className="mt-1 text-amber-700 dark:text-amber-300">
-                You can inspect cards, but only Editor/Admin/Private roles can move tasks.
-              </CardDescription>
-            </div>
-          </div>
-        </Card>
-      ) : null}
+        <Button
+          size="sm"
+          variant={assignmentViewMode === "all" ? "outline" : "secondary"}
+          className={cn("h-7 gap-1 px-2 text-xs", TOOLBAR_CONTROL_CLASS)}
+          onClick={cycleAssignmentViewMode}
+          title={`할당 필터: ${assignmentMode.label}`}
+        >
+          <AssignmentModeIcon className="h-3.5 w-3.5" />
+          <span>{assignmentMode.shortLabel}</span>
+        </Button>
 
-      <Card>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="info">{selectedIds.length} selected</Badge>
-          <Button variant="outline" size="sm" onClick={onSelectAll} disabled={visibleTasks.length === 0}>
-            Select all
+        <Button
+          size="sm"
+          variant={highlightMyAssignments ? "secondary" : "outline"}
+          className={cn("h-7 gap-1 px-2 text-xs", TOOLBAR_CONTROL_CLASS)}
+          onClick={() => setHighlightMyAssignments((previous) => !previous)}
+          title="나에게 지정된 작업 강조"
+        >
+          {highlightMyAssignments ? <CheckSquare2 className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
+          <span>강조</span>
+        </Button>
+
+        <Button
+          size="sm"
+          variant="outline"
+          className={cn("h-7 px-2 text-xs", TOOLBAR_CONTROL_CLASS)}
+          onClick={cycleSortMode}
+          title="정렬 방식 변경"
+        >
+          <span>정렬: {sortModeMeta[sortMode].label}</span>
+        </Button>
+
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          <Button
+            size="icon"
+            variant="outline"
+            className={cn("h-7 w-7", TOOLBAR_CONTROL_CLASS)}
+            onClick={openAddTaskPopup}
+            title="작업 추가"
+            disabled={!writable}
+          >
+            <CirclePlus className="h-3.5 w-3.5" />
           </Button>
-          <Button variant="ghost" size="sm" onClick={onClearSelection} disabled={selectedIds.length === 0}>
-            Clear
-          </Button>
 
-          <div className="mx-1 h-4 w-px bg-zinc-200 dark:bg-zinc-700" />
-
-          <Button size="sm" variant="secondary" onClick={() => applyMoves(selectedIds, "backlog", "bulk")} disabled={!writable || selectedIds.length === 0}>
-            Backlog (B)
-          </Button>
           <Button
             size="sm"
-            variant="secondary"
-            onClick={() => applyMoves(selectedIds, "in_progress", "bulk")}
-            disabled={!writable || selectedIds.length === 0}
+            variant={historyPopupOpen ? "secondary" : "outline"}
+            className={cn("h-7 px-2 text-xs", TOOLBAR_CONTROL_CLASS)}
+            onClick={() => setHistoryPopupOpen(true)}
           >
-            In Progress (I)
+            History
           </Button>
-          <Button size="sm" variant="secondary" onClick={() => applyMoves(selectedIds, "done", "bulk")} disabled={!writable || selectedIds.length === 0}>
-            Done (D)
-          </Button>
-
-          <p className="ml-auto text-xs text-zinc-500 dark:text-zinc-400">Shortcuts: I / D / B (focused card or selected cards)</p>
         </div>
-      </Card>
+      </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-        <div className="grid gap-4 xl:grid-cols-3">
+        <div className="grid gap-3 xl:grid-cols-4">
           {COLUMNS.map((column) => (
             <KanbanColumn
               key={column.id}
               id={column.id}
               title={column.title}
               tone={column.tone}
-              tasks={tasksByStatus[column.id]}
+              tasks={tasksByStage[column.id]}
               writable={writable}
-              selectedTaskIds={selectedTaskIds}
               focusedTaskId={effectiveFocusedTaskId}
+              userById={userById}
               userDisplayById={userDisplayById}
-              onToggleTaskSelection={onToggleTaskSelection}
+              highlightMyAssignments={highlightMyAssignments}
+              isAssignedToCurrentUser={isAssignedToCurrentUser}
               onFocusTask={setFocusedTaskId}
-              onQuickAction={(taskId, nextStatus) => applyMoves([taskId], nextStatus, "quick")}
+              onQuickAction={(taskId, nextStage) => applyMoves([taskId], nextStage, "quick")}
+              onOpenDetail={openDetailPopup}
+              onFinalizeTask={handleFinalizeTask}
             />
           ))}
         </div>
 
         <DragOverlay>
           {activeTask ? (
-            <div className={cn("w-[320px] rounded-lg border p-3 shadow-lg", postItTone(activeTask.status))}>
+            <div className={cn("w-[300px] rounded-md border p-2.5 shadow-xl", taskSurfaceTone(readKanbanStage(activeTask)))}>
+              <span className={cn("mb-2 block h-1.5 w-10 rounded-full", taskAccentTone(readKanbanStage(activeTask)))} />
               <p className="text-sm font-semibold">{activeTask.title}</p>
-              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{STATUS_LABEL[activeTask.status]}</p>
+              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                {STAGE_LABEL[readKanbanStage(activeTask)]} · P{readKanbanPriority(activeTask)}
+              </p>
             </div>
           ) : null}
         </DragOverlay>
       </DndContext>
+
+      <PopupShell
+        open={projectPopupOpen}
+        onClose={() => setProjectPopupOpen(false)}
+        title="프로젝트 선택 / 추가"
+        description="프로젝트를 전환하거나 새 프로젝트를 만들 수 있습니다."
+        widthClassName="max-w-2xl"
+      >
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">프로젝트 목록</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {projects.map((item) => {
+                const active = item.id === projectId;
+                return (
+                  <button
+                    key={`kanban-project-option-${item.id}`}
+                    type="button"
+                    className={cn(
+                      "rounded-lg border px-3 py-2 text-left transition",
+                      active
+                        ? "border-sky-500 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-300"
+                        : "border-zinc-200 bg-white hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                    )}
+                    onClick={() => handleSelectProject(item.id)}
+                  >
+                    <p className="truncate text-sm font-semibold">{item.name}</p>
+                    <p className="mt-0.5 line-clamp-2 text-xs text-zinc-500 dark:text-zinc-400">{item.description || "설명 없음"}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <form className="space-y-3 rounded-lg border border-zinc-200/80 bg-zinc-50/70 p-3 dark:border-zinc-700/80 dark:bg-zinc-900/60" onSubmit={handleCreateProject}>
+            <p className="text-xs font-medium text-zinc-600 dark:text-zinc-300">프로젝트 추가</p>
+            <Input
+              value={newProjectForm.name}
+              onChange={(event) => setNewProjectForm((previous) => ({ ...previous, name: event.target.value }))}
+              placeholder="프로젝트명"
+              disabled={!writable}
+            />
+            <Input
+              value={newProjectForm.description}
+              onChange={(event) => setNewProjectForm((previous) => ({ ...previous, description: event.target.value }))}
+              placeholder="설명 (선택)"
+              disabled={!writable}
+            />
+            <div className="flex justify-end">
+              <Button type="submit" disabled={!writable}>
+                <CirclePlus className="h-4 w-4" />
+                프로젝트 추가
+              </Button>
+            </div>
+          </form>
+        </div>
+      </PopupShell>
+
+      <PopupShell
+        open={addTaskPopupOpen}
+        onClose={() => setAddTaskPopupOpen(false)}
+        title="작업 추가"
+        description="To do 상태와 우선순위(1~7)를 포함해 새 작업을 만듭니다."
+        widthClassName="max-w-3xl"
+      >
+        <form className="space-y-4" onSubmit={handleCreateTask}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5 sm:col-span-2">
+              <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">제목</p>
+              <Input
+                value={newTaskDraft.title}
+                onChange={(event) => setNewTaskDraft((previous) => ({ ...previous, title: event.target.value }))}
+                placeholder="작업 제목"
+                disabled={!writable}
+                required
+              />
+            </div>
+
+            <div className="space-y-1.5 sm:col-span-2">
+              <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">설명</p>
+              <textarea
+                value={newTaskDraft.description}
+                onChange={(event) => setNewTaskDraft((previous) => ({ ...previous, description: event.target.value }))}
+                placeholder="설명"
+                disabled={!writable}
+                className="h-24 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm outline-none ring-offset-white transition focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:ring-offset-zinc-900 dark:focus-visible:ring-zinc-700"
+              />
+            </div>
+
+            <label className="space-y-1.5">
+              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">상태</span>
+              <select
+                value={newTaskDraft.stage}
+                onChange={(event) => setNewTaskDraft((previous) => ({ ...previous, stage: event.target.value as KanbanStage }))}
+                className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
+                disabled={!writable}
+              >
+                {COLUMNS.map((column) => (
+                  <option key={`new-stage-${column.id}`} value={column.id}>
+                    {column.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-1.5">
+              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">우선순위 (1~7)</span>
+              <select
+                value={String(newTaskDraft.priority)}
+                onChange={(event) =>
+                  setNewTaskDraft((previous) => ({
+                    ...previous,
+                    priority: sanitizePriority(Number(event.target.value))
+                  }))
+                }
+                className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
+                disabled={!writable}
+              >
+                {Array.from({ length: 7 }, (_, index) => index + 1).map((value) => (
+                  <option key={`new-priority-${value}`} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-1.5">
+              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">담당자</span>
+              <select
+                value={newTaskDraft.assigneeId}
+                onChange={(event) => {
+                  const assigneeId = event.target.value;
+                  setNewTaskDraft((previous) => ({
+                    ...previous,
+                    assigneeId,
+                    participantIds: ensureAssigneeInParticipants(previous.participantIds, assigneeId)
+                  }));
+                }}
+                className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
+                disabled={!writable}
+              >
+                {users.map((user) => (
+                  <option key={`new-assignee-${user.id}`} value={user.id}>
+                    {user.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-1.5">
+              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Owner</span>
+              <select
+                value={newTaskDraft.ownerId}
+                onChange={(event) => setNewTaskDraft((previous) => ({ ...previous, ownerId: event.target.value }))}
+                className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
+                disabled={!writable}
+              >
+                {users.map((user) => (
+                  <option key={`new-owner-${user.id}`} value={user.id}>
+                    {user.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-1.5">
+              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">마감일</span>
+              <Input
+                type="date"
+                value={newTaskDraft.dueDate}
+                onChange={(event) => setNewTaskDraft((previous) => ({ ...previous, dueDate: event.target.value }))}
+                disabled={!writable}
+              />
+            </label>
+
+            <label className="space-y-1.5">
+              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Visibility</span>
+              <select
+                value={newTaskDraft.visibility}
+                onChange={(event) => setNewTaskDraft((previous) => ({ ...previous, visibility: event.target.value as "shared" | "private" }))}
+                className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
+                disabled={!writable}
+              >
+                <option value="shared">shared</option>
+                <option value="private">private</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">참여자</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {users.map((user) => {
+                const checked = newTaskDraft.participantIds.includes(user.id) || newTaskDraft.assigneeId === user.id;
+                const disabled = newTaskDraft.assigneeId === user.id || !writable;
+
+                return (
+                  <label
+                    key={`new-participant-${user.id}`}
+                    className="flex items-center gap-2 rounded-md border border-zinc-200/80 px-2.5 py-2 text-sm dark:border-zinc-700/80"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={disabled}
+                      onChange={(event) => {
+                        const nextChecked = event.target.checked;
+                        setNewTaskDraft((previous) => {
+                          const has = previous.participantIds.includes(user.id);
+                          const participantIds = nextChecked
+                            ? has
+                              ? previous.participantIds
+                              : [...previous.participantIds, user.id]
+                            : previous.participantIds.filter((participantId) => participantId !== user.id);
+
+                          return {
+                            ...previous,
+                            participantIds: ensureAssigneeInParticipants(participantIds, previous.assigneeId)
+                          };
+                        });
+                      }}
+                    />
+                    <span>{user.displayName}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setAddTaskPopupOpen(false)}>
+              취소
+            </Button>
+            <Button type="submit" disabled={!writable}>
+              <CirclePlus className="h-4 w-4" />
+              작업 추가
+            </Button>
+          </div>
+        </form>
+      </PopupShell>
+
+      <PopupShell
+        open={historyPopupOpen}
+        onClose={() => setHistoryPopupOpen(false)}
+        title="History"
+        description="현재 프로젝트의 최종완료 작업입니다. 최신 완료순으로 최대 20개까지 표시됩니다."
+      >
+        <div className="space-y-2">
+          {historyItems.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-zinc-300/90 px-3 py-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+              완료 히스토리가 없습니다.
+            </div>
+          ) : (
+            historyItems.map((entry) => {
+              const task = entry.task;
+              const assignee = userById.get(task.assigneeId);
+              return (
+                <div
+                  key={`history-task-${entry.historyId}`}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200/80 bg-zinc-50/70 px-3 py-2.5 dark:border-zinc-700/80 dark:bg-zinc-900/60"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{task.title}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+                      <Badge variant="neutral">P{readKanbanPriority(task)}</Badge>
+                      <span>담당: {assignee?.displayName ?? task.assigneeId}</span>
+                      <span>마감: {formatDate(task.dueDate)}</span>
+                      <span>완료: {formatDateTime(entry.finalizedAt)}</span>
+                    </div>
+                  </div>
+
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={!writable}
+                    onClick={() => {
+                      handleRestoreTask(entry.historyId);
+                    }}
+                    className="h-7 px-2 text-xs"
+                  >
+                    복원
+                  </Button>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </PopupShell>
+
+      <PopupShell
+        open={Boolean(detailTask && detailDraft)}
+        onClose={() => {
+          setDetailTaskId(null);
+          setDetailDraft(null);
+        }}
+        title={detailTask?.title || "작업 상세"}
+        description="제목, 설명, 우선순위, 참여자, owner, 마감일, visibility, 상태, assignee를 수정할 수 있습니다."
+        widthClassName="max-w-3xl"
+      >
+        {detailTask && detailDraft ? (
+          <form className="space-y-4" onSubmit={handleSaveDetail}>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={STAGE_BADGE_VARIANT[detailDraft.stage]}>{STAGE_LABEL[detailDraft.stage]}</Badge>
+              <Badge variant="neutral">P{detailDraft.priority}</Badge>
+              <Badge variant={detailDraft.visibility === "private" ? "warning" : "info"}>{detailDraft.visibility}</Badge>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5 sm:col-span-2">
+                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">제목</p>
+                <Input
+                  value={detailDraft.title}
+                  onChange={(event) => setDetailDraft((previous) => (previous ? { ...previous, title: event.target.value } : previous))}
+                  disabled={!writable}
+                  required
+                />
+              </div>
+
+              <div className="space-y-1.5 sm:col-span-2">
+                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">설명</p>
+                <textarea
+                  value={detailDraft.description}
+                  onChange={(event) => setDetailDraft((previous) => (previous ? { ...previous, description: event.target.value } : previous))}
+                  disabled={!writable}
+                  className="h-28 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm outline-none ring-offset-white transition focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:ring-offset-zinc-900 dark:focus-visible:ring-zinc-700"
+                />
+              </div>
+
+              <label className="space-y-1.5">
+                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">상태</span>
+                <select
+                  value={detailDraft.stage}
+                  onChange={(event) => setDetailDraft((previous) => (previous ? { ...previous, stage: event.target.value as KanbanStage } : previous))}
+                  className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
+                  disabled={!writable}
+                >
+                  {COLUMNS.map((column) => (
+                    <option key={`detail-status-${column.id}`} value={column.id}>
+                      {column.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-1.5">
+                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">우선순위 (1~7)</span>
+                <select
+                  value={String(detailDraft.priority)}
+                  onChange={(event) =>
+                    setDetailDraft((previous) =>
+                      previous
+                        ? {
+                            ...previous,
+                            priority: sanitizePriority(Number(event.target.value))
+                          }
+                        : previous
+                    )
+                  }
+                  className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
+                  disabled={!writable}
+                >
+                  {Array.from({ length: 7 }, (_, index) => index + 1).map((value) => (
+                    <option key={`detail-priority-${value}`} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-1.5">
+                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">담당자</span>
+                <select
+                  value={detailDraft.assigneeId}
+                  onChange={(event) => {
+                    const assigneeId = event.target.value;
+                    setDetailDraft((previous) =>
+                      previous
+                        ? {
+                            ...previous,
+                            assigneeId,
+                            participantIds: ensureAssigneeInParticipants(previous.participantIds, assigneeId)
+                          }
+                        : previous
+                    );
+                  }}
+                  className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
+                  disabled={!writable}
+                >
+                  {users.map((user) => (
+                    <option key={`detail-assignee-${user.id}`} value={user.id}>
+                      {user.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-1.5">
+                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Owner</span>
+                <select
+                  value={detailDraft.ownerId}
+                  onChange={(event) => setDetailDraft((previous) => (previous ? { ...previous, ownerId: event.target.value } : previous))}
+                  className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
+                  disabled={!writable}
+                >
+                  {users.map((user) => (
+                    <option key={`detail-owner-${user.id}`} value={user.id}>
+                      {user.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-1.5">
+                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">마감일</span>
+                <Input
+                  type="date"
+                  value={detailDraft.dueDate}
+                  onChange={(event) => setDetailDraft((previous) => (previous ? { ...previous, dueDate: event.target.value } : previous))}
+                  disabled={!writable}
+                />
+              </label>
+
+              <label className="space-y-1.5">
+                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Visibility</span>
+                <select
+                  value={detailDraft.visibility}
+                  onChange={(event) =>
+                    setDetailDraft((previous) =>
+                      previous
+                        ? {
+                            ...previous,
+                            visibility: event.target.value as "shared" | "private"
+                          }
+                        : previous
+                    )
+                  }
+                  className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
+                  disabled={!writable}
+                >
+                  <option value="shared">shared</option>
+                  <option value="private">private</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">참여자</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {users.map((user) => {
+                  const checked = detailDraft.participantIds.includes(user.id) || detailDraft.assigneeId === user.id;
+                  const disabled = detailDraft.assigneeId === user.id || !writable;
+
+                  return (
+                    <label
+                      key={`detail-participant-${user.id}`}
+                      className="flex items-center gap-2 rounded-md border border-zinc-200/80 px-2.5 py-2 text-sm dark:border-zinc-700/80"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={disabled}
+                        onChange={(event) => {
+                          const nextChecked = event.target.checked;
+                          setDetailDraft((previous) => {
+                            if (!previous) return previous;
+
+                            const has = previous.participantIds.includes(user.id);
+                            const participantIds = nextChecked
+                              ? has
+                                ? previous.participantIds
+                                : [...previous.participantIds, user.id]
+                              : previous.participantIds.filter((participantId) => participantId !== user.id);
+
+                            return {
+                              ...previous,
+                              participantIds: ensureAssigneeInParticipants(participantIds, previous.assigneeId)
+                            };
+                          });
+                        }}
+                      />
+                      <span>{user.displayName}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            {!writable ? <p className="text-xs text-amber-600 dark:text-amber-300">읽기 전용 권한에서는 수정할 수 없습니다.</p> : null}
+
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setDetailTaskId(null);
+                  setDetailDraft(null);
+                }}
+              >
+                취소
+              </Button>
+              <Button type="submit" disabled={!writable}>
+                저장
+              </Button>
+            </div>
+          </form>
+        ) : null}
+      </PopupShell>
     </section>
   );
 }
@@ -450,24 +1740,30 @@ function KanbanColumn({
   tone,
   tasks,
   writable,
-  selectedTaskIds,
   focusedTaskId,
+  userById,
   userDisplayById,
-  onToggleTaskSelection,
+  highlightMyAssignments,
+  isAssignedToCurrentUser,
   onFocusTask,
-  onQuickAction
+  onQuickAction,
+  onOpenDetail,
+  onFinalizeTask
 }: {
-  id: TaskStatus;
+  id: KanbanStage;
   title: string;
-  tone: "neutral" | "info" | "success";
+  tone: "neutral" | "info" | "warning" | "success";
   tasks: Task[];
   writable: boolean;
-  selectedTaskIds: Set<string>;
   focusedTaskId: string | null;
+  userById: Map<string, User>;
   userDisplayById: Record<string, string>;
-  onToggleTaskSelection: (taskId: string) => void;
+  highlightMyAssignments: boolean;
+  isAssignedToCurrentUser: (task: Task) => boolean;
   onFocusTask: (taskId: string) => void;
-  onQuickAction: (taskId: string, nextStatus: TaskStatus) => void;
+  onQuickAction: (taskId: string, nextStage: KanbanStage) => void;
+  onOpenDetail: (taskId: string) => void;
+  onFinalizeTask: (taskId: string) => void;
 }) {
   const { isOver, setNodeRef } = useDroppable({
     id,
@@ -478,32 +1774,35 @@ function KanbanColumn({
     <section
       ref={setNodeRef}
       className={cn(
-        "rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/35",
-        isOver && writable && "border-sky-400 bg-sky-50/70 dark:border-sky-700 dark:bg-sky-950/20"
+        "rounded-lg border border-zinc-200/80 bg-zinc-50/45 p-2.5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/30",
+        isOver && writable && "border-sky-300 bg-sky-50/55 dark:border-sky-700 dark:bg-sky-950/25"
       )}
     >
-      <div className="mb-3 flex items-center justify-between gap-2">
+      <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">{title}</h2>
         <Badge variant={tone}>{tasks.length}</Badge>
       </div>
 
       <SortableContext items={tasks.map((task) => task.id)} strategy={verticalListSortingStrategy}>
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           {tasks.map((task) => (
             <KanbanTaskCard
               key={task.id}
               task={task}
+              stage={readKanbanStage(task)}
               writable={writable}
-              selected={selectedTaskIds.has(task.id)}
               focused={focusedTaskId === task.id}
               assignee={userDisplayById[task.assigneeId] ?? task.assigneeId}
-              onToggleSelect={onToggleTaskSelection}
+              assigneeUser={userById.get(task.assigneeId)}
+              highlighted={highlightMyAssignments && isAssignedToCurrentUser(task)}
               onFocus={onFocusTask}
               onQuickAction={onQuickAction}
+              onOpenDetail={onOpenDetail}
+              onFinalizeTask={onFinalizeTask}
             />
           ))}
           {tasks.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-zinc-300 px-3 py-6 text-center text-xs text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+            <div className="rounded-md border border-dashed border-zinc-300/90 px-3 py-5 text-center text-xs text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
               Drop tasks here
             </div>
           ) : null}
@@ -513,24 +1812,39 @@ function KanbanColumn({
   );
 }
 
+function UserAvatar({ user, fallbackLabel }: { user?: User; fallbackLabel: string }) {
+  const symbol = user?.icon?.trim() || fallbackLabel.trim().charAt(0).toUpperCase() || "?";
+  return (
+    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-zinc-200 text-[10px] font-semibold text-zinc-700 dark:bg-zinc-700 dark:text-zinc-100">
+      {symbol}
+    </span>
+  );
+}
+
 function KanbanTaskCard({
   task,
+  stage,
   writable,
-  selected,
   focused,
   assignee,
-  onToggleSelect,
+  assigneeUser,
+  highlighted,
   onFocus,
-  onQuickAction
+  onQuickAction,
+  onOpenDetail,
+  onFinalizeTask
 }: {
   task: Task;
+  stage: KanbanStage;
   writable: boolean;
-  selected: boolean;
   focused: boolean;
   assignee: string;
-  onToggleSelect: (taskId: string) => void;
+  assigneeUser?: User;
+  highlighted: boolean;
   onFocus: (taskId: string) => void;
-  onQuickAction: (taskId: string, nextStatus: TaskStatus) => void;
+  onQuickAction: (taskId: string, nextStage: KanbanStage) => void;
+  onOpenDetail: (taskId: string) => void;
+  onFinalizeTask: (taskId: string) => void;
 }) {
   const { attributes, listeners, isDragging, setNodeRef, transform, transition } = useSortable({
     id: task.id,
@@ -542,75 +1856,93 @@ function KanbanTaskCard({
     transition
   };
 
-  const quickAction = getQuickAction(task.status);
+  const quickAction = getQuickAction(stage);
   const QuickActionIcon = quickAction.icon;
 
   return (
     <article
       ref={setNodeRef}
       style={style}
-      tabIndex={0}
+      {...attributes}
+      {...listeners}
       onFocus={() => onFocus(task.id)}
+      onClick={() => onFocus(task.id)}
+      onDoubleClick={(event) => {
+        if (event.button !== 0) return;
+        onOpenDetail(task.id);
+      }}
       className={cn(
-        "relative rounded-lg border p-3 shadow-sm outline-none transition",
-        postItTone(task.status),
-        selected && "border-sky-400 ring-2 ring-sky-300/70 dark:border-sky-700 dark:ring-sky-800/80",
+        "group relative rounded-md border px-2.5 py-2 shadow-[0_1px_0_rgba(15,23,42,0.08)] outline-none",
+        CARD_INTERACTION_CLASS,
+        taskSurfaceTone(stage),
+        writable ? "cursor-grab active:cursor-grabbing" : "",
+        writable && !isDragging && "hover:shadow-md",
+        highlighted && "border-violet-300/80 ring-2 ring-violet-200/70 dark:border-violet-700/70 dark:ring-violet-900/65",
         focused && "ring-2 ring-zinc-300 dark:ring-zinc-600",
         isDragging && "opacity-55"
       )}
+      title="더블 클릭해서 상세 보기"
     >
-      <span className="absolute left-1/2 top-1 h-2.5 w-2.5 -translate-x-1/2 rounded-full bg-zinc-500/35 dark:bg-zinc-200/35" />
+      <span className={cn("mb-1 block h-1.5 w-9 rounded-full", taskAccentTone(stage))} />
       <div className="flex items-start gap-2">
-        <button
-          type="button"
-          className="mt-0.5 rounded text-zinc-500 transition hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
-          onClick={() => onToggleSelect(task.id)}
-          onPointerDown={(event) => event.stopPropagation()}
-          aria-label={selected ? "Deselect task" : "Select task"}
-        >
-          {selected ? <CheckSquare2 className="h-4 w-4" /> : <Square className="h-4 w-4" />}
-        </button>
-
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{task.title}</p>
-          <p className="mt-1 line-clamp-2 text-xs text-zinc-500 dark:text-zinc-400">{task.description}</p>
+          <p className="mt-0.5 line-clamp-2 text-xs text-zinc-500 dark:text-zinc-400">{task.description}</p>
         </div>
 
-        <button
-          type="button"
-          className="rounded p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-          aria-label="Drag task"
-          {...attributes}
-          {...listeners}
-          disabled={!writable}
-          onPointerDown={(event) => {
-            if (!writable) {
-              event.preventDefault();
-            }
-          }}
+        <div
+          className={cn(
+            "rounded p-1 text-zinc-400 transition-colors duration-150 ease-out motion-reduce:transition-none",
+            writable
+              ? "group-hover:bg-zinc-100 group-hover:text-zinc-700 dark:group-hover:bg-zinc-800 dark:group-hover:text-zinc-200"
+              : "opacity-40"
+          )}
+          aria-hidden
         >
           <GripVertical className="h-4 w-4" />
-        </button>
+        </div>
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <Badge variant={task.priority === "high" ? "warning" : task.priority === "medium" ? "info" : "neutral"}>{task.priority}</Badge>
-        <Badge variant={task.visibility === "private" ? "warning" : "neutral"}>{task.visibility}</Badge>
-        <span className="text-[11px] text-zinc-500 dark:text-zinc-400">Assignee: {assignee}</span>
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+        <Badge variant="neutral">P{readKanbanPriority(task)}</Badge>
+        <span className="inline-flex items-center gap-1">
+          <UserAvatar user={assigneeUser} fallbackLabel={assignee} />
+          <span className="max-w-[120px] truncate">{assignee}</span>
+        </span>
+        <span>Due: {formatDate(task.dueDate)}</span>
       </div>
 
-      <div className="mt-3 flex items-center justify-between gap-2">
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-1.5">
         <Button
           size="sm"
           variant="secondary"
           disabled={!writable}
-          onClick={() => onQuickAction(task.id, quickAction.nextStatus)}
-          className="h-8"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onQuickAction(task.id, quickAction.nextStage);
+          }}
+          className={cn("h-7 px-2 text-xs", TOOLBAR_CONTROL_CLASS)}
         >
           <QuickActionIcon className="h-3.5 w-3.5" />
           {quickAction.label}
         </Button>
-        <span className="text-[11px] text-zinc-400">I / D / B</span>
+
+        {stage === "done" ? (
+          <Button
+            size="sm"
+            variant="default"
+            disabled={!writable}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onFinalizeTask(task.id);
+            }}
+            className={cn("h-7 px-2 text-xs", TOOLBAR_CONTROL_CLASS)}
+          >
+            최종완료
+          </Button>
+        ) : null}
       </div>
     </article>
   );
