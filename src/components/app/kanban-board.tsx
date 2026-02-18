@@ -425,6 +425,20 @@ function getQuickAction(stage: KanbanStage) {
   return { label: "Reopen", nextStage: "todo" as KanbanStage, icon: RotateCcw };
 }
 
+function quickActionButtonVariant(nextStage: KanbanStage): "default" | "secondary" {
+  if (nextStage === "in_progress") {
+    return "secondary";
+  }
+  return "default";
+}
+
+function quickActionButtonTone(nextStage: KanbanStage) {
+  if (nextStage === "done") {
+    return "!bg-lime-300 hover:!bg-lime-200 dark:!bg-lime-300 dark:!text-zinc-950 dark:hover:!bg-lime-200";
+  }
+  return "";
+}
+
 function defaultDueDateInput() {
   const nextWeek = new Date();
   nextWeek.setDate(nextWeek.getDate() + 7);
@@ -1919,14 +1933,14 @@ function KanbanTaskCard({
       <div className="mt-2 flex flex-wrap items-center justify-between gap-1.5">
         <Button
           size="sm"
-          variant="secondary"
+          variant={quickActionButtonVariant(quickAction.nextStage)}
           disabled={!writable}
           onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => {
             event.stopPropagation();
             onQuickAction(task.id, quickAction.nextStage);
           }}
-          className={cn("h-7 px-2 text-xs", TOOLBAR_CONTROL_CLASS)}
+          className={cn("h-7 px-2 text-xs", TOOLBAR_CONTROL_CLASS, quickActionButtonTone(quickAction.nextStage))}
         >
           <QuickActionIcon className="h-3.5 w-3.5" />
           {quickAction.label}

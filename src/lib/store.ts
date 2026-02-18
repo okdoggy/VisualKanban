@@ -32,6 +32,8 @@ import type {
   TodoWeekday,
   UpdateTodoInput,
   User,
+  WorkspaceLanguage,
+  WorkspaceStyle,
   WhiteboardScene,
   WhiteboardSceneData,
   VisualKanbanState
@@ -59,6 +61,8 @@ function nowIso() {
 
 const TODO_PRIORITY_DEFAULT: TodoPriority = 4;
 const TODO_REPEAT_COLOR_DEFAULT = "#22c55e";
+const DEFAULT_WORKSPACE_LANGUAGE: WorkspaceLanguage = "ko";
+const DEFAULT_WORKSPACE_STYLE: WorkspaceStyle = "neo-classic";
 
 function normalizeTodoPriority(priority?: number): TodoPriority {
   if (!Number.isFinite(priority)) {
@@ -318,6 +322,8 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       currentUserId: null,
       connectedUserIds: [],
       sessionCheckedAt: null,
+      workspaceLanguage: DEFAULT_WORKSPACE_LANGUAGE,
+      workspaceStyle: DEFAULT_WORKSPACE_STYLE,
 
       login: (username, password) => {
         const user = get().users.find((candidate) => candidate.username === username.trim());
@@ -1000,6 +1006,14 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
               ? [...state.connectedUserIds, currentUserId]
               : state.connectedUserIds
         }));
+      },
+
+      setWorkspaceLanguage: (nextLanguage) => {
+        set({ workspaceLanguage: nextLanguage });
+      },
+
+      setWorkspaceStyle: (nextStyle) => {
+        set({ workspaceStyle: nextStyle });
       }
     }),
     {
@@ -1019,7 +1033,9 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
         activities: state.activities,
         currentUserId: state.currentUserId,
         connectedUserIds: state.connectedUserIds,
-        sessionCheckedAt: state.sessionCheckedAt
+        sessionCheckedAt: state.sessionCheckedAt,
+        workspaceLanguage: state.workspaceLanguage,
+        workspaceStyle: state.workspaceStyle
       })
     }
   )

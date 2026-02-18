@@ -16,6 +16,8 @@ export type TaskPriority = "low" | "medium" | "high";
 export type TodoPriority = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 export type TodoRecurrenceType = "none" | "daily" | "weekly";
 export type TodoWeekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+export type WorkspaceLanguage = "ko" | "en";
+export type WorkspaceStyle = "neo-classic" | "neo-vivid";
 
 export type TodoRecurrence =
   | { type: "none" }
@@ -163,6 +165,8 @@ export interface VisualKanbanState {
   currentUserId: string | null;
   connectedUserIds: string[];
   sessionCheckedAt: string | null;
+  workspaceLanguage: WorkspaceLanguage;
+  workspaceStyle: WorkspaceStyle;
 
   login: (username: string, password: string) => { ok: boolean; reason?: string };
   logout: () => void;
@@ -190,4 +194,6 @@ export interface VisualKanbanState {
 
   setPermission: (projectId: string, feature: FeatureKey, userId: string, role: AccessRole) => void;
   ensureSessionCheck: () => void;
+  setWorkspaceLanguage: (nextLanguage: WorkspaceLanguage) => void;
+  setWorkspaceStyle: (nextStyle: WorkspaceStyle) => void;
 }
