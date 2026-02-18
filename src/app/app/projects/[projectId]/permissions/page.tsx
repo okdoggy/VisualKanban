@@ -16,7 +16,7 @@ const neoCard =
 const neoControl =
   "border-2 border-zinc-900 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]";
 
-const features: FeatureKey[] = ["project", "kanban", "mindmap", "gantt", "taskboard", "todo", "search", "comments"];
+const features: FeatureKey[] = ["project", "kanban", "mindmap", "gantt", "todo", "search", "comments"];
 const roles: AccessRole[] = ["admin", "editor", "viewer", "private"];
 
 const featureLabel: Record<FeatureKey, string> = {

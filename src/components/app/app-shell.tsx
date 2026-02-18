@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { KanbanSquare, LayoutDashboard, ListTodo, LogOut, PenTool, Search, Table2, User, Waypoints, X } from "lucide-react";
+import { KanbanSquare, LayoutDashboard, ListTodo, LogOut, PenTool, Search, User, Waypoints, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,8 +16,7 @@ const nav = [
   { href: "/app/todo", label: "To do", icon: ListTodo },
   { href: "/app/projects/proj-visual/whiteboard", label: "WhiteBoard", icon: PenTool },
   { href: "/app/projects/proj-visual/kanban", label: "칸반보드", icon: KanbanSquare },
-  { href: "/app/projects/proj-visual/gantt", label: "간트차트", icon: Waypoints },
-  { href: "/app/projects/proj-visual/board", label: "테스크 보드", icon: Table2 }
+  { href: "/app/projects/proj-visual/gantt", label: "간트차트", icon: Waypoints }
 ];
 
 function initials(name: string) {
@@ -33,7 +32,6 @@ function getTabLabel(pathname: string) {
   if (pathname.startsWith("/app/projects/") && pathname.includes("/kanban")) return "칸반 보드";
   if (pathname.startsWith("/app/projects/") && pathname.includes("/whiteboard")) return "화이트보드";
   if (pathname.startsWith("/app/projects/") && pathname.includes("/mindmap")) return "화이트보드";
-  if (pathname.startsWith("/app/projects/") && pathname.includes("/board")) return "테스크 보드";
   if (pathname.startsWith("/app/projects/") && pathname.includes("/permissions")) return "권한 설정";
   if (pathname.startsWith("/app/projects/") && pathname.includes("/tasks/")) return "테스크 상세";
   if (pathname === "/app/dashboard") return "대시보드";

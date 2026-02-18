@@ -64,12 +64,12 @@ export default function TaskDetailPage() {
   const currentUser = useMemo(() => getCurrentUser(users, currentUserId), [users, currentUserId]);
   const project = useMemo(() => projects.find((item) => item.id === projectId), [projectId, projects]);
 
-  const taskboardRole = useMemo(
+  const taskAccessRole = useMemo(
     () =>
       getEffectiveRoleForFeature({
         user: currentUser,
         projectId,
-        feature: "taskboard",
+        feature: "gantt",
         permissions
       }),
     [currentUser, permissions, projectId]
@@ -87,7 +87,7 @@ export default function TaskDetailPage() {
 
   const userMap = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
 
-  if (!canRead(taskboardRole)) {
+  if (!canRead(taskAccessRole)) {
     return <FeatureAccessDenied feature="Task Detail" />;
   }
 
@@ -109,7 +109,7 @@ export default function TaskDetailPage() {
     );
   }
 
-  if (!canSeeTask(currentUser, task, taskboardRole)) {
+  if (!canSeeTask(currentUser, task, taskAccessRole)) {
     return <FeatureAccessDenied feature="Task Detail" message="이 태스크는 현재 계정으로 볼 수 없습니다." />;
   }
 
@@ -143,10 +143,10 @@ export default function TaskDetailPage() {
       <PageHeader
         title={task.title}
         description={`${project.name} · 마지막 업데이트 ${formatDateTime(task.updatedAt)}`}
-        role={taskboardRole}
+        role={taskAccessRole}
         actions={
-          <Link href={`/app/projects/${projectId}/board`} className="text-sm text-sky-600 hover:underline dark:text-sky-400">
-            Task Board로 이동
+          <Link href={`/app/projects/${projectId}/gantt`} className="text-sm text-sky-600 hover:underline dark:text-sky-400">
+            간트차트로 이동
           </Link>
         }
       />
@@ -194,14 +194,14 @@ export default function TaskDetailPage() {
                   className={neoButton}
                   size="sm"
                   variant={status === task.status ? "default" : "secondary"}
-                  disabled={!canWrite(taskboardRole)}
+                  disabled={!canWrite(taskAccessRole)}
                   onClick={() => onMoveStatus(status)}
                 >
                   {statusMeta[status].label}
                 </Button>
               ))}
             </div>
-            {!canWrite(taskboardRole) ? (
+            {!canWrite(taskAccessRole) ? (
               <CardDescription>현재 권한은 읽기 전용입니다. 상태 변경은 Editor 이상에서 가능합니다.</CardDescription>
             ) : null}
           </div>

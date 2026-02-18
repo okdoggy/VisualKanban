@@ -338,7 +338,7 @@ export default function SearchPage() {
                   {projectResults.map((project) => (
                     <li key={project.id}>
                       <Link
-                        href={`/app/projects/${project.id}/board`}
+                        href={`/app/projects/${project.id}/gantt`}
                         className="block rounded-lg border-2 border-zinc-900 bg-zinc-100 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] transition hover:-translate-y-0.5 hover:shadow-none dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
                       >
                         <p className="text-sm font-medium">{project.name}</p>
