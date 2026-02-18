@@ -17,6 +17,7 @@ import {
 } from "@/lib/data/seed";
 import { canSeeTask, resolveRole } from "@/lib/permissions/roles";
 import type {
+  AccountWorkspacePreference,
   AccessRole,
   AddTodoInput,
   Activity,
@@ -34,6 +35,7 @@ import type {
   User,
   WorkspaceLanguage,
   WorkspaceStyle,
+  WorkspaceStylePreset,
   WhiteboardScene,
   WhiteboardSceneData,
   VisualKanbanState
@@ -63,6 +65,74 @@ const TODO_PRIORITY_DEFAULT: TodoPriority = 4;
 const TODO_REPEAT_COLOR_DEFAULT = "#22c55e";
 const DEFAULT_WORKSPACE_LANGUAGE: WorkspaceLanguage = "ko";
 const DEFAULT_WORKSPACE_STYLE: WorkspaceStyle = "neo-classic";
+const WORKSPACE_STYLE_PRESETS = new Set<WorkspaceStylePreset>([
+  "neo-classic",
+  "neo-vivid",
+  "modern-light",
+  "modern-dark",
+  "warm-brown"
+]);
+
+function normalizeWorkspaceLanguage(language: WorkspaceLanguage | null | undefined): WorkspaceLanguage {
+  return language === "en" ? "en" : "ko";
+}
+
+function normalizeWorkspaceStyle(style: WorkspaceStyle | null | undefined): WorkspaceStylePreset {
+  return style && WORKSPACE_STYLE_PRESETS.has(style as WorkspaceStylePreset)
+    ? (style as WorkspaceStylePreset)
+    : (DEFAULT_WORKSPACE_STYLE as WorkspaceStylePreset);
+}
+
+function resolveAccountWorkspacePreference({
+  accountId,
+  workspacePreferencesByAccountId,
+  fallbackLanguage,
+  fallbackStyle
+}: {
+  accountId: string;
+  workspacePreferencesByAccountId: Record<string, AccountWorkspacePreference>;
+  fallbackLanguage: WorkspaceLanguage;
+  fallbackStyle: WorkspaceStyle;
+}): AccountWorkspacePreference {
+  const existing = workspacePreferencesByAccountId[accountId];
+  return {
+    language: normalizeWorkspaceLanguage(existing?.language ?? fallbackLanguage),
+    style: normalizeWorkspaceStyle(existing?.style ?? fallbackStyle)
+  };
+}
+
+function shouldUpdateAccountWorkspacePreference(
+  current: AccountWorkspacePreference | undefined,
+  next: AccountWorkspacePreference
+) {
+  if (!current) return true;
+  return current.language !== next.language || current.style !== next.style;
+}
+
+function resolveWorkspaceFallbackForAccount({
+  accountId,
+  workspacePreferencesByAccountId,
+  fallbackLanguage,
+  fallbackStyle
+}: {
+  accountId: string;
+  workspacePreferencesByAccountId: Record<string, AccountWorkspacePreference>;
+  fallbackLanguage: WorkspaceLanguage;
+  fallbackStyle: WorkspaceStyle;
+}) {
+  const hasExistingPreference = Boolean(workspacePreferencesByAccountId[accountId]);
+  if (hasExistingPreference || Object.keys(workspacePreferencesByAccountId).length === 0) {
+    return {
+      language: normalizeWorkspaceLanguage(fallbackLanguage),
+      style: normalizeWorkspaceStyle(fallbackStyle)
+    };
+  }
+
+  return {
+    language: DEFAULT_WORKSPACE_LANGUAGE,
+    style: normalizeWorkspaceStyle(DEFAULT_WORKSPACE_STYLE)
+  };
+}
 
 function normalizeTodoPriority(priority?: number): TodoPriority {
   if (!Number.isFinite(priority)) {
@@ -324,6 +394,7 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       sessionCheckedAt: null,
       workspaceLanguage: DEFAULT_WORKSPACE_LANGUAGE,
       workspaceStyle: DEFAULT_WORKSPACE_STYLE,
+      workspacePreferencesByAccountId: {},
 
       login: (username, password) => {
         const user = get().users.find((candidate) => candidate.username === username.trim());
@@ -335,16 +406,44 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
         }
 
         writeAuthCookie(user.id);
-        set((state) => ({
-          personalTodos: applyTodoLifecycle(state.personalTodos, user.id).todos,
-          currentUserId: user.id,
-          connectedUserIds: state.connectedUserIds.includes(user.id) ? state.connectedUserIds : [...state.connectedUserIds, user.id],
-          sessionCheckedAt: nowIso(),
-          activities: [makeActivity({ actorId: user.id, type: "login", message: `${user.username} 로그인 성공` }), ...state.activities].slice(
-            0,
-            200
+        set((state) => {
+          const fallbackPreference = resolveWorkspaceFallbackForAccount({
+            accountId: user.id,
+            workspacePreferencesByAccountId: state.workspacePreferencesByAccountId,
+            fallbackLanguage: state.workspaceLanguage,
+            fallbackStyle: state.workspaceStyle
+          });
+          const resolvedWorkspacePreference = resolveAccountWorkspacePreference({
+            accountId: user.id,
+            workspacePreferencesByAccountId: state.workspacePreferencesByAccountId,
+            fallbackLanguage: fallbackPreference.language,
+            fallbackStyle: fallbackPreference.style
+          });
+          const existingWorkspacePreference = state.workspacePreferencesByAccountId[user.id];
+          const nextWorkspacePreferencesByAccountId = shouldUpdateAccountWorkspacePreference(
+            existingWorkspacePreference,
+            resolvedWorkspacePreference
           )
-        }));
+            ? {
+                ...state.workspacePreferencesByAccountId,
+                [user.id]: resolvedWorkspacePreference
+              }
+            : state.workspacePreferencesByAccountId;
+
+          return {
+            personalTodos: applyTodoLifecycle(state.personalTodos, user.id).todos,
+            currentUserId: user.id,
+            connectedUserIds: state.connectedUserIds.includes(user.id) ? state.connectedUserIds : [...state.connectedUserIds, user.id],
+            sessionCheckedAt: nowIso(),
+            workspaceLanguage: resolvedWorkspacePreference.language,
+            workspaceStyle: resolvedWorkspacePreference.style,
+            workspacePreferencesByAccountId: nextWorkspacePreferencesByAccountId,
+            activities: [makeActivity({ actorId: user.id, type: "login", message: `${user.username} 로그인 성공` }), ...state.activities].slice(
+              0,
+              200
+            )
+          };
+        });
 
         return { ok: true, reason: user.mustChangePassword ? "MUST_CHANGE_PASSWORD" : undefined };
       },
@@ -998,22 +1097,102 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
 
       ensureSessionCheck: () => {
         const currentUserId = get().currentUserId;
-        set((state) => ({
-          sessionCheckedAt: nowIso(),
-          personalTodos: currentUserId ? applyTodoLifecycle(state.personalTodos, currentUserId).todos : state.personalTodos,
-          connectedUserIds:
-            currentUserId && !state.connectedUserIds.includes(currentUserId)
-              ? [...state.connectedUserIds, currentUserId]
-              : state.connectedUserIds
-        }));
+        set((state) => {
+          const fallbackPreference = currentUserId
+            ? resolveWorkspaceFallbackForAccount({
+                accountId: currentUserId,
+                workspacePreferencesByAccountId: state.workspacePreferencesByAccountId,
+                fallbackLanguage: state.workspaceLanguage,
+                fallbackStyle: state.workspaceStyle
+              })
+            : null;
+          const resolvedWorkspacePreference = currentUserId
+            ? resolveAccountWorkspacePreference({
+                accountId: currentUserId,
+                workspacePreferencesByAccountId: state.workspacePreferencesByAccountId,
+                fallbackLanguage: fallbackPreference?.language ?? state.workspaceLanguage,
+                fallbackStyle: fallbackPreference?.style ?? state.workspaceStyle
+              })
+            : null;
+          const existingWorkspacePreference = currentUserId ? state.workspacePreferencesByAccountId[currentUserId] : undefined;
+          const nextWorkspacePreferencesByAccountId =
+            currentUserId && resolvedWorkspacePreference && shouldUpdateAccountWorkspacePreference(existingWorkspacePreference, resolvedWorkspacePreference)
+              ? {
+                  ...state.workspacePreferencesByAccountId,
+                  [currentUserId]: resolvedWorkspacePreference
+                }
+              : state.workspacePreferencesByAccountId;
+
+          return {
+            sessionCheckedAt: nowIso(),
+            personalTodos: currentUserId ? applyTodoLifecycle(state.personalTodos, currentUserId).todos : state.personalTodos,
+            connectedUserIds:
+              currentUserId && !state.connectedUserIds.includes(currentUserId)
+                ? [...state.connectedUserIds, currentUserId]
+                : state.connectedUserIds,
+            workspaceLanguage: resolvedWorkspacePreference?.language ?? normalizeWorkspaceLanguage(state.workspaceLanguage),
+            workspaceStyle: resolvedWorkspacePreference?.style ?? normalizeWorkspaceStyle(state.workspaceStyle),
+            workspacePreferencesByAccountId: nextWorkspacePreferencesByAccountId
+          };
+        });
       },
 
       setWorkspaceLanguage: (nextLanguage) => {
-        set({ workspaceLanguage: nextLanguage });
+        set((state) => {
+          const normalizedLanguage = normalizeWorkspaceLanguage(nextLanguage);
+          const currentUserId = state.currentUserId;
+          if (!currentUserId) {
+            return { workspaceLanguage: normalizedLanguage };
+          }
+
+          const existingWorkspacePreference = resolveAccountWorkspacePreference({
+            accountId: currentUserId,
+            workspacePreferencesByAccountId: state.workspacePreferencesByAccountId,
+            fallbackLanguage: state.workspaceLanguage,
+            fallbackStyle: state.workspaceStyle
+          });
+          const nextWorkspacePreference: AccountWorkspacePreference = {
+            ...existingWorkspacePreference,
+            language: normalizedLanguage
+          };
+
+          return {
+            workspaceLanguage: normalizedLanguage,
+            workspacePreferencesByAccountId: {
+              ...state.workspacePreferencesByAccountId,
+              [currentUserId]: nextWorkspacePreference
+            }
+          };
+        });
       },
 
       setWorkspaceStyle: (nextStyle) => {
-        set({ workspaceStyle: nextStyle });
+        set((state) => {
+          const normalizedStyle = normalizeWorkspaceStyle(nextStyle);
+          const currentUserId = state.currentUserId;
+          if (!currentUserId) {
+            return { workspaceStyle: normalizedStyle };
+          }
+
+          const existingWorkspacePreference = resolveAccountWorkspacePreference({
+            accountId: currentUserId,
+            workspacePreferencesByAccountId: state.workspacePreferencesByAccountId,
+            fallbackLanguage: state.workspaceLanguage,
+            fallbackStyle: state.workspaceStyle
+          });
+          const nextWorkspacePreference: AccountWorkspacePreference = {
+            ...existingWorkspacePreference,
+            style: normalizedStyle
+          };
+
+          return {
+            workspaceStyle: normalizedStyle,
+            workspacePreferencesByAccountId: {
+              ...state.workspacePreferencesByAccountId,
+              [currentUserId]: nextWorkspacePreference
+            }
+          };
+        });
       }
     }),
     {
@@ -1035,7 +1214,8 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
         connectedUserIds: state.connectedUserIds,
         sessionCheckedAt: state.sessionCheckedAt,
         workspaceLanguage: state.workspaceLanguage,
-        workspaceStyle: state.workspaceStyle
+        workspaceStyle: state.workspaceStyle,
+        workspacePreferencesByAccountId: state.workspacePreferencesByAccountId
       })
     }
   )

@@ -17,7 +17,13 @@ export type TodoPriority = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 export type TodoRecurrenceType = "none" | "daily" | "weekly";
 export type TodoWeekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 export type WorkspaceLanguage = "ko" | "en";
-export type WorkspaceStyle = "neo-classic" | "neo-vivid";
+export type WorkspaceStylePreset = "neo-classic" | "neo-vivid" | "modern-light" | "modern-dark" | "warm-brown";
+export type WorkspaceStyle = WorkspaceStylePreset;
+
+export interface AccountWorkspacePreference {
+  language: WorkspaceLanguage;
+  style: WorkspaceStyle;
+}
 
 export type TodoRecurrence =
   | { type: "none" }
@@ -167,6 +173,7 @@ export interface VisualKanbanState {
   sessionCheckedAt: string | null;
   workspaceLanguage: WorkspaceLanguage;
   workspaceStyle: WorkspaceStyle;
+  workspacePreferencesByAccountId: Record<string, AccountWorkspacePreference>;
 
   login: (username: string, password: string) => { ok: boolean; reason?: string };
   logout: () => void;

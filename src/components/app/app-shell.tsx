@@ -19,20 +19,100 @@ const nav = [
   { href: "/app/projects/proj-visual/gantt", labelKey: "gantt", icon: Waypoints }
 ] as const;
 
-const styleOptions: WorkspaceStyle[] = ["neo-classic", "neo-vivid"];
+const styleOptions: WorkspaceStyle[] = ["neo-classic", "neo-vivid", "modern-light", "modern-dark", "warm-brown"];
 
-const shellStyleClasses: Record<WorkspaceStyle, { page: string; sidebar: string; header: string; searchDialog: string }> = {
+type ShellStyleClasses = {
+  page: string;
+  sidebar: string;
+  header: string;
+  navActive: string;
+  navInactive: string;
+  settingsPanel: string;
+  settingsSelect: string;
+  topBarIconButton: string;
+  connectedUserChip: string;
+  searchDialog: string;
+  mainContent: string;
+};
+
+const shellStyleClasses: Record<WorkspaceStyle, ShellStyleClasses> = {
   "neo-classic": {
     page: "bg-zinc-100 dark:bg-zinc-950",
     sidebar: "bg-amber-200 dark:bg-zinc-900",
     header: "bg-sky-200 dark:bg-zinc-900",
-    searchDialog: "bg-amber-100 dark:bg-zinc-900"
+    navActive:
+      "border-zinc-900 bg-lime-300 text-zinc-900 shadow-[4px_4px_0_0_#18181b] dark:border-zinc-100 dark:bg-lime-400 dark:text-zinc-950 dark:shadow-[4px_4px_0_0_#f4f4f5]",
+    navInactive:
+      "border-zinc-900/80 bg-white text-zinc-900 hover:-translate-x-[1px] hover:-translate-y-[1px] hover:shadow-[4px_4px_0_0_#18181b] dark:border-zinc-200 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:shadow-[4px_4px_0_0_#f4f4f5]",
+    settingsPanel: "border-zinc-900 bg-white shadow-[5px_5px_0_0_#18181b] dark:border-zinc-100 dark:bg-zinc-950 dark:shadow-[5px_5px_0_0_#f4f4f5]",
+    settingsSelect: "border-zinc-900 bg-white text-zinc-900 dark:border-zinc-100 dark:bg-zinc-900 dark:text-zinc-100",
+    topBarIconButton:
+      "border-zinc-900 bg-white text-zinc-900 shadow-[3px_3px_0_0_#18181b] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_0_#18181b] dark:border-zinc-100 dark:bg-zinc-900 dark:text-zinc-100 dark:shadow-[3px_3px_0_0_#f4f4f5] dark:hover:shadow-[2px_2px_0_0_#f4f4f5]",
+    connectedUserChip:
+      "border-zinc-900 bg-amber-100 text-zinc-900 shadow-[2px_2px_0_0_#18181b] dark:border-zinc-100 dark:bg-zinc-800 dark:text-zinc-100 dark:shadow-[2px_2px_0_0_#f4f4f5]",
+    searchDialog: "bg-amber-100 dark:bg-zinc-900",
+    mainContent: "border-zinc-900 bg-white shadow-[8px_8px_0_0_#18181b] dark:border-zinc-100 dark:bg-zinc-950 dark:shadow-[8px_8px_0_0_#f4f4f5]"
   },
   "neo-vivid": {
-    page: "bg-zinc-100 dark:bg-zinc-950",
+    page: "bg-fuchsia-50 dark:bg-zinc-950",
     sidebar: "bg-lime-200 dark:bg-zinc-900",
     header: "bg-cyan-200 dark:bg-zinc-900",
-    searchDialog: "bg-lime-100 dark:bg-zinc-900"
+    navActive:
+      "border-zinc-900 bg-fuchsia-300 text-zinc-900 shadow-[4px_4px_0_0_#18181b] dark:border-zinc-100 dark:bg-fuchsia-400 dark:text-zinc-950 dark:shadow-[4px_4px_0_0_#f4f4f5]",
+    navInactive:
+      "border-zinc-900/80 bg-cyan-50 text-zinc-900 hover:-translate-x-[1px] hover:-translate-y-[1px] hover:shadow-[4px_4px_0_0_#18181b] dark:border-zinc-200 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:shadow-[4px_4px_0_0_#f4f4f5]",
+    settingsPanel: "border-zinc-900 bg-lime-50 shadow-[5px_5px_0_0_#18181b] dark:border-zinc-100 dark:bg-zinc-950 dark:shadow-[5px_5px_0_0_#f4f4f5]",
+    settingsSelect: "border-zinc-900 bg-cyan-50 text-zinc-900 dark:border-zinc-100 dark:bg-zinc-900 dark:text-zinc-100",
+    topBarIconButton:
+      "border-zinc-900 bg-cyan-50 text-zinc-900 shadow-[3px_3px_0_0_#18181b] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_0_#18181b] dark:border-zinc-100 dark:bg-zinc-900 dark:text-zinc-100 dark:shadow-[3px_3px_0_0_#f4f4f5] dark:hover:shadow-[2px_2px_0_0_#f4f4f5]",
+    connectedUserChip:
+      "border-zinc-900 bg-cyan-100 text-zinc-900 shadow-[2px_2px_0_0_#18181b] dark:border-zinc-100 dark:bg-zinc-800 dark:text-zinc-100 dark:shadow-[2px_2px_0_0_#f4f4f5]",
+    searchDialog: "bg-lime-100 dark:bg-zinc-900",
+    mainContent: "border-zinc-900 bg-cyan-50 shadow-[8px_8px_0_0_#18181b] dark:border-zinc-100 dark:bg-zinc-950 dark:shadow-[8px_8px_0_0_#f4f4f5]"
+  },
+  "modern-light": {
+    page: "bg-zinc-100",
+    sidebar:
+      "rounded-2xl border border-zinc-200 bg-white shadow-[0_20px_48px_-32px_rgba(15,23,42,0.75)] [&_p]:text-zinc-500 [&_h2]:text-zinc-900 [&_label]:text-zinc-600",
+    header:
+      "rounded-2xl border border-zinc-200 bg-white shadow-[0_16px_38px_-28px_rgba(15,23,42,0.7)] [&_p]:text-zinc-500 [&_h1]:text-zinc-900",
+    navActive: "border-zinc-900 bg-zinc-900 text-zinc-50 shadow-sm",
+    navInactive: "border-zinc-200 bg-white text-zinc-700 shadow-sm hover:bg-zinc-100 hover:shadow-md",
+    settingsPanel: "rounded-xl border-zinc-200 bg-zinc-50 shadow-sm",
+    settingsSelect: "rounded-md border-zinc-300 bg-white text-zinc-800",
+    topBarIconButton: "rounded-lg border-zinc-200 bg-white text-zinc-700 shadow-sm hover:bg-zinc-100 hover:translate-x-0 hover:translate-y-0 hover:shadow-md",
+    connectedUserChip: "rounded-full border-zinc-200 bg-zinc-100 text-zinc-700 shadow-sm",
+    searchDialog: "rounded-2xl border border-zinc-200 bg-white shadow-[0_28px_70px_-36px_rgba(15,23,42,0.8)]",
+    mainContent: "rounded-2xl border border-zinc-200 bg-white shadow-[0_22px_54px_-34px_rgba(15,23,42,0.72)]"
+  },
+  "modern-dark": {
+    page: "bg-zinc-950",
+    sidebar:
+      "rounded-2xl border border-zinc-700 bg-zinc-900 shadow-[0_20px_48px_-30px_rgba(0,0,0,0.95)] [&_p]:text-zinc-400 [&_h2]:text-zinc-50 [&_label]:text-zinc-300",
+    header:
+      "rounded-2xl border border-zinc-700 bg-zinc-900 shadow-[0_16px_38px_-24px_rgba(0,0,0,0.95)] [&_p]:text-zinc-400 [&_h1]:text-zinc-50",
+    navActive: "border-zinc-100 bg-zinc-50 text-zinc-950 shadow-sm",
+    navInactive: "border-zinc-700 bg-zinc-900 text-zinc-200 shadow-sm hover:bg-zinc-800 hover:shadow-md",
+    settingsPanel: "rounded-xl border-zinc-700 bg-zinc-900 shadow-sm [&_p]:text-zinc-400 [&_label]:text-zinc-300",
+    settingsSelect: "rounded-md border-zinc-600 bg-zinc-800 text-zinc-100",
+    topBarIconButton: "rounded-lg border-zinc-700 bg-zinc-900 text-zinc-100 shadow-sm hover:bg-zinc-800 hover:translate-x-0 hover:translate-y-0 hover:shadow-md",
+    connectedUserChip: "rounded-full border-zinc-600 bg-zinc-800 text-zinc-100 shadow-sm",
+    searchDialog: "rounded-2xl border border-zinc-700 bg-zinc-900 shadow-[0_30px_72px_-34px_rgba(0,0,0,0.98)]",
+    mainContent: "rounded-2xl border border-zinc-700 bg-zinc-900 shadow-[0_24px_58px_-32px_rgba(0,0,0,0.95)]"
+  },
+  "warm-brown": {
+    page: "bg-amber-50",
+    sidebar: "border-amber-900 bg-amber-200 shadow-[8px_8px_0_0_#78350f] [&_p]:text-amber-700 [&_h2]:text-amber-950 [&_label]:text-amber-800",
+    header: "border-amber-900 bg-amber-100 shadow-[8px_8px_0_0_#78350f] [&_p]:text-amber-700 [&_h1]:text-amber-950",
+    navActive: "border-amber-900 bg-amber-700 text-amber-50 shadow-[4px_4px_0_0_#78350f]",
+    navInactive: "border-amber-800/80 bg-amber-50 text-amber-900 hover:-translate-x-[1px] hover:-translate-y-[1px] hover:shadow-[4px_4px_0_0_#78350f]",
+    settingsPanel: "border-amber-900 bg-amber-100 shadow-[5px_5px_0_0_#78350f]",
+    settingsSelect: "border-amber-900 bg-amber-50 text-amber-950",
+    topBarIconButton:
+      "border-amber-900 bg-amber-100 text-amber-950 shadow-[3px_3px_0_0_#78350f] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_0_#78350f]",
+    connectedUserChip: "border-amber-900 bg-amber-200 text-amber-950 shadow-[2px_2px_0_0_#78350f]",
+    searchDialog: "border-amber-900 bg-amber-50 shadow-[10px_10px_0_0_#78350f]",
+    mainContent: "border-amber-900 bg-amber-50 shadow-[8px_8px_0_0_#78350f]"
   }
 };
 
@@ -113,7 +193,10 @@ const shellCopyByLanguage: Record<WorkspaceLanguage, ShellCopy> = {
     },
     styleOptions: {
       "neo-classic": "네오 클래식",
-      "neo-vivid": "네오 비비드"
+      "neo-vivid": "네오 비비드",
+      "modern-light": "모던 라이트",
+      "modern-dark": "모던 다크",
+      "warm-brown": "웜 브라운"
     },
     searchTitle: "글로벌 검색",
     searchPlaceholder: "검색어를 입력하세요 (⌘/Ctrl + K)",
@@ -164,7 +247,10 @@ const shellCopyByLanguage: Record<WorkspaceLanguage, ShellCopy> = {
     },
     styleOptions: {
       "neo-classic": "Neo Classic",
-      "neo-vivid": "Neo Vivid"
+      "neo-vivid": "Neo Vivid",
+      "modern-light": "Modern Light",
+      "modern-dark": "Modern Dark",
+      "warm-brown": "Warm Brown"
     },
     searchTitle: "Global search",
     searchPlaceholder: "Type to search (⌘/Ctrl + K)",
@@ -246,7 +332,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 
   const shellCopy = useMemo(() => shellCopyByLanguage[workspaceLanguage], [workspaceLanguage]);
-  const activeStyle = useMemo(() => shellStyleClasses[workspaceStyle], [workspaceStyle]);
+  const activeStyle = useMemo(() => shellStyleClasses[workspaceStyle] ?? shellStyleClasses["neo-classic"], [workspaceStyle]);
   const currentUser = useMemo(() => getCurrentUser(users, currentUserId), [users, currentUserId]);
   const currentTabLabel = useMemo(() => getTabLabel(pathname, shellCopy.tabs), [pathname, shellCopy]);
   const connectedUsers = useMemo(
@@ -371,8 +457,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return null;
   }
 
-  const topBarIconButtonClass =
-    "h-9 w-9 rounded-none border-2 border-zinc-900 bg-white text-zinc-900 shadow-[3px_3px_0_0_#18181b] transition-transform hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_0_#18181b] dark:border-zinc-100 dark:bg-zinc-900 dark:text-zinc-100 dark:shadow-[3px_3px_0_0_#f4f4f5] dark:hover:shadow-[2px_2px_0_0_#f4f4f5]";
+  const topBarIconButtonClass = `h-9 w-9 rounded-none border-2 transition-transform ${activeStyle.topBarIconButton}`;
 
   return (
     <div className={`min-h-screen p-3 sm:p-4 ${activeStyle.page}`}>
@@ -393,9 +478,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   key={item.href}
                   href={item.href}
                   className={`flex items-center gap-2.5 border-2 px-3 py-2 text-sm font-bold uppercase tracking-wide transition ${
-                    active
-                      ? "border-zinc-900 bg-lime-300 text-zinc-900 shadow-[4px_4px_0_0_#18181b] dark:border-zinc-100 dark:bg-lime-400 dark:text-zinc-950 dark:shadow-[4px_4px_0_0_#f4f4f5]"
-                      : "border-zinc-900/80 bg-white text-zinc-900 hover:-translate-x-[1px] hover:-translate-y-[1px] hover:shadow-[4px_4px_0_0_#18181b] dark:border-zinc-200 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:shadow-[4px_4px_0_0_#f4f4f5]"
+                    active ? activeStyle.navActive : activeStyle.navInactive
                   }`}
                 >
                   <Icon className="h-4 w-4 shrink-0" />
@@ -404,7 +487,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               );
             })}
           </nav>
-          <div className="mt-auto space-y-3 border-[3px] border-zinc-900 bg-white p-3 shadow-[5px_5px_0_0_#18181b] dark:border-zinc-100 dark:bg-zinc-950 dark:shadow-[5px_5px_0_0_#f4f4f5]">
+          <div className={`mt-auto space-y-3 border-[3px] p-3 ${activeStyle.settingsPanel}`}>
             <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-600 dark:text-zinc-300">{shellCopy.settings}</p>
             <div className="space-y-1">
               <label htmlFor="workspace-style-select" className="text-[11px] font-black uppercase tracking-[0.12em] text-zinc-700 dark:text-zinc-300">
@@ -414,7 +497,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 id="workspace-style-select"
                 value={workspaceStyle}
                 onChange={(event) => setWorkspaceStyle(event.target.value as WorkspaceStyle)}
-                className="h-9 w-full rounded-none border-2 border-zinc-900 bg-white px-2 text-xs font-bold text-zinc-900 dark:border-zinc-100 dark:bg-zinc-900 dark:text-zinc-100"
+                className={`h-9 w-full rounded-none border-2 px-2 text-xs font-bold ${activeStyle.settingsSelect}`}
               >
                 {styleOptions.map((styleOption) => (
                   <option key={styleOption} value={styleOption}>
@@ -431,7 +514,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 id="workspace-language-select"
                 value={workspaceLanguage}
                 onChange={(event) => setWorkspaceLanguage(event.target.value as WorkspaceLanguage)}
-                className="h-9 w-full rounded-none border-2 border-zinc-900 bg-white px-2 text-xs font-bold text-zinc-900 dark:border-zinc-100 dark:bg-zinc-900 dark:text-zinc-100"
+                className={`h-9 w-full rounded-none border-2 px-2 text-xs font-bold ${activeStyle.settingsSelect}`}
               >
                 {(Object.keys(shellCopy.languageOptions) as WorkspaceLanguage[]).map((languageCode) => (
                   <option key={languageCode} value={languageCode}>
@@ -458,7 +541,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <span
                     key={`connected-user-${user.id}`}
                     title={`${user.displayName} (${user.username})`}
-                    className="inline-flex h-8 min-w-8 items-center justify-center border-2 border-zinc-900 bg-amber-100 px-1 text-[10px] font-black text-zinc-900 shadow-[2px_2px_0_0_#18181b] dark:border-zinc-100 dark:bg-zinc-800 dark:text-zinc-100 dark:shadow-[2px_2px_0_0_#f4f4f5]"
+                    className={`inline-flex h-8 min-w-8 items-center justify-center border-2 px-1 text-[10px] font-black ${activeStyle.connectedUserChip}`}
                   >
                     {(user.icon ?? initials(user.displayName)).slice(0, 4)}
                   </span>
@@ -614,7 +697,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           ) : null}
 
-          <div className="border-4 border-zinc-900 bg-white p-4 shadow-[8px_8px_0_0_#18181b] dark:border-zinc-100 dark:bg-zinc-950 dark:shadow-[8px_8px_0_0_#f4f4f5] lg:p-5">
+          <div className={`border-4 p-4 lg:p-5 ${activeStyle.mainContent}`}>
             {children}
           </div>
         </main>
