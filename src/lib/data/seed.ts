@@ -1,4 +1,15 @@
-import type { Activity, Comment, KanbanHistoryItem, MindmapNode, PermissionAssignment, PersonalTodo, Project, Task, User } from "@/lib/types";
+import type {
+  Activity,
+  Comment,
+  KanbanHistoryItem,
+  MindmapNode,
+  PermissionAssignment,
+  PersonalTodo,
+  Project,
+  Task,
+  User,
+  WhiteboardScene
+} from "@/lib/types";
 
 const now = new Date().toISOString();
 const nowDate = new Date();
@@ -307,6 +318,24 @@ export const seedMindmapNodes: MindmapNode[] = [
     x: 400,
     y: 260,
     taskId: "task-2"
+  }
+];
+
+export const seedWhiteboardScenes: WhiteboardScene[] = [
+  {
+    id: "whiteboard-proj-visual",
+    projectId: "proj-visual",
+    scene: {
+      elements: [],
+      appState: {
+        viewBackgroundColor: "#ffffff",
+        scrollX: 0,
+        scrollY: 0
+      },
+      files: null
+    },
+    updatedAt: now,
+    updatedBy: "u-admin"
   }
 ];
 

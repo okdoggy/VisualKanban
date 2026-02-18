@@ -12,6 +12,7 @@ import {
   seedPermissions,
   seedProjects,
   seedTasks,
+  seedWhiteboardScenes,
   seedUsers
 } from "@/lib/data/seed";
 import { canSeeTask, resolveRole } from "@/lib/permissions/roles";
@@ -31,6 +32,8 @@ import type {
   TodoWeekday,
   UpdateTodoInput,
   User,
+  WhiteboardScene,
+  WhiteboardSceneData,
   VisualKanbanState
 } from "@/lib/types";
 
@@ -310,6 +313,7 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       kanbanHistory: seedKanbanHistory,
       comments: seedComments,
       mindmapNodes: seedMindmapNodes,
+      whiteboardScenes: seedWhiteboardScenes,
       activities: seedActivities,
       currentUserId: null,
       connectedUserIds: [],
@@ -416,6 +420,7 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
         }
 
         const projectId = uid("proj");
+        const nextUpdatedAt = nowIso();
         set((state) => ({
           projects: [
             {
@@ -424,6 +429,24 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
               description: input.description.trim()
             },
             ...state.projects
+          ],
+          whiteboardScenes: [
+            {
+              id: uid("whiteboard"),
+              projectId,
+              scene: {
+                elements: [],
+                appState: {
+                  viewBackgroundColor: "#ffffff",
+                  scrollX: 0,
+                  scrollY: 0
+                },
+                files: null
+              },
+              updatedAt: nextUpdatedAt,
+              updatedBy: currentUserId
+            },
+            ...state.whiteboardScenes
           ]
         }));
 
@@ -579,6 +602,58 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
         }
 
         return { removed: lifecycle.removed, reactivated: lifecycle.reactivated };
+      },
+
+      saveWhiteboardScene: (projectId: string, scene: WhiteboardSceneData) => {
+        const currentUserId = get().currentUserId;
+        if (!currentUserId) {
+          return { ok: false, reason: "로그인이 필요합니다." };
+        }
+
+        const projectExists = get().projects.some((project) => project.id === projectId);
+        if (!projectExists) {
+          return { ok: false, reason: "프로젝트를 찾지 못했습니다." };
+        }
+
+        const normalizedScene: WhiteboardSceneData = {
+          elements: Array.isArray(scene.elements) ? scene.elements : [],
+          appState: scene.appState && typeof scene.appState === "object" ? scene.appState : null,
+          files: scene.files && typeof scene.files === "object" ? scene.files : null
+        };
+
+        const updatedAt = nowIso();
+        set((state) => {
+          const existing = state.whiteboardScenes.find((item) => item.projectId === projectId);
+          if (!existing) {
+            return {
+              whiteboardScenes: [
+                {
+                  id: uid("whiteboard"),
+                  projectId,
+                  scene: normalizedScene,
+                  updatedAt,
+                  updatedBy: currentUserId
+                },
+                ...state.whiteboardScenes
+              ]
+            };
+          }
+
+          return {
+            whiteboardScenes: state.whiteboardScenes.map((item) =>
+              item.projectId === projectId
+                ? {
+                    ...item,
+                    scene: normalizedScene,
+                    updatedAt,
+                    updatedBy: currentUserId
+                  }
+                : item
+            )
+          };
+        });
+
+        return { ok: true };
       },
 
       addTask: (input) => {
@@ -940,6 +1015,7 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
         kanbanHistory: state.kanbanHistory,
         comments: state.comments,
         mindmapNodes: state.mindmapNodes,
+        whiteboardScenes: state.whiteboardScenes,
         activities: state.activities,
         currentUserId: state.currentUserId,
         connectedUserIds: state.connectedUserIds,

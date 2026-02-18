@@ -22,7 +22,7 @@ const roles: AccessRole[] = ["admin", "editor", "viewer", "private"];
 const featureLabel: Record<FeatureKey, string> = {
   project: "Project",
   kanban: "Kanban",
-  mindmap: "Mindmap",
+  mindmap: "WhiteBoard",
   gantt: "Gantt",
   taskboard: "Task Board",
   todo: "Todo",

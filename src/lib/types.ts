@@ -126,6 +126,20 @@ export interface MindmapNode {
   y: number;
 }
 
+export interface WhiteboardSceneData {
+  elements: unknown[];
+  appState: Record<string, unknown> | null;
+  files: Record<string, unknown> | null;
+}
+
+export interface WhiteboardScene {
+  id: string;
+  projectId: string;
+  scene: WhiteboardSceneData;
+  updatedAt: string;
+  updatedBy: string;
+}
+
 export interface Activity {
   id: string;
   actorId: string;
@@ -144,6 +158,7 @@ export interface VisualKanbanState {
   kanbanHistory: KanbanHistoryItem[];
   comments: Comment[];
   mindmapNodes: MindmapNode[];
+  whiteboardScenes: WhiteboardScene[];
   activities: Activity[];
   currentUserId: string | null;
   connectedUserIds: string[];
@@ -160,6 +175,7 @@ export interface VisualKanbanState {
   toggleTodo: (todoId: string, forceCompleted?: boolean) => { ok: boolean; reason?: string };
   removeTodo: (todoId: string) => { ok: boolean; reason?: string };
   cleanupTodos: () => { removed: number; reactivated: number };
+  saveWhiteboardScene: (projectId: string, scene: WhiteboardSceneData) => { ok: boolean; reason?: string };
 
   addTask: (input: AddTaskInput) => void;
   addKanbanTask: (input: AddTaskInput) => void;
