@@ -10,6 +10,11 @@ import { getCurrentUser, useVisualKanbanStore } from "@/lib/store";
 import type { Activity } from "@/lib/types";
 import { useShallow } from "zustand/react/shallow";
 
+const neoCard =
+  "rounded-2xl border-2 border-zinc-900 bg-white shadow-[4px_4px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[4px_4px_0_0_rgb(0,0,0)]";
+const neoControl =
+  "border-2 border-zinc-900 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]";
+
 const activityLabels: Record<Activity["type"], string> = {
   login: "Login",
   task_move: "Task Move",
@@ -76,27 +81,27 @@ export default function AdminAuditPage() {
   }
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-4 [&_button]:transition [&_button]:hover:-translate-y-0.5 [&_button]:hover:shadow-none">
       <PageHeader title="Admin · Audit" description="활동 로그를 타입/검색어로 필터링해 빠르게 추적할 수 있습니다." role={currentUser.baseRole} />
 
       <div className="grid gap-4 md:grid-cols-5">
         {(Object.keys(activityLabels) as Activity["type"][]).map((type) => (
-          <Card key={type}>
+          <Card key={type} className={neoCard}>
             <CardTitle className="text-xs uppercase tracking-wide text-zinc-500">{activityLabels[type]}</CardTitle>
             <p className="mt-2 text-2xl font-semibold">{counts[type]}</p>
           </Card>
         ))}
       </div>
 
-      <Card className="space-y-3">
+      <Card className={`${neoCard} space-y-3`}>
         <div className="flex flex-wrap items-center gap-2">
           <div className="w-full max-w-sm">
-            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="actor / message 검색" />
+            <Input className={neoControl} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="actor / message 검색" />
           </div>
           <select
             value={typeFilter}
             onChange={(event) => setTypeFilter(event.target.value as TypeFilter)}
-            className="h-10 rounded-md border border-zinc-200 bg-white px-3 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+            className={`h-10 rounded-md bg-white px-3 text-sm dark:bg-zinc-900 ${neoControl}`}
           >
             <option value="all">All Types</option>
             {(Object.keys(activityLabels) as Activity["type"][]).map((type) => (
@@ -112,28 +117,28 @@ export default function AdminAuditPage() {
         <div className="overflow-x-auto">
           <table className="min-w-full border-separate border-spacing-0 text-sm">
             <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                <th className="border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">Time</th>
-                <th className="border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">Actor</th>
-                <th className="border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">Type</th>
-                <th className="border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">Message</th>
+              <tr className="bg-zinc-100 text-left text-xs uppercase tracking-wide text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+                <th className="border-b-2 border-zinc-900 px-3 py-2 dark:border-zinc-100">Time</th>
+                <th className="border-b-2 border-zinc-900 px-3 py-2 dark:border-zinc-100">Actor</th>
+                <th className="border-b-2 border-zinc-900 px-3 py-2 dark:border-zinc-100">Type</th>
+                <th className="border-b-2 border-zinc-900 px-3 py-2 dark:border-zinc-100">Message</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((activity) => {
                 const actor = userMap.get(activity.actorId);
                 return (
-                  <tr key={activity.id} className="odd:bg-zinc-50/70 dark:odd:bg-zinc-900/40">
-                    <td className="border-b border-zinc-200 px-3 py-2 text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+                  <tr key={activity.id} className="odd:bg-zinc-100/70 dark:odd:bg-zinc-800/40">
+                    <td className="border-b border-zinc-300 px-3 py-2 text-xs text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
                       {new Date(activity.createdAt).toLocaleString("ko-KR")}
                     </td>
-                    <td className="border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
+                    <td className="border-b border-zinc-300 px-3 py-2 dark:border-zinc-700">
                       {actor?.displayName ?? activity.actorId}
                     </td>
-                    <td className="border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
+                    <td className="border-b border-zinc-300 px-3 py-2 dark:border-zinc-700">
                       <Badge variant={activityBadge(activity.type)}>{activityLabels[activity.type]}</Badge>
                     </td>
-                    <td className="border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">{activity.message}</td>
+                    <td className="border-b border-zinc-300 px-3 py-2 dark:border-zinc-700">{activity.message}</td>
                   </tr>
                 );
               })}

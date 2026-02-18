@@ -194,6 +194,14 @@ const colorPalette = [
   "#64748b"
 ] as const;
 
+const neoCard =
+  "rounded-2xl border-2 border-zinc-900 bg-white shadow-[4px_4px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[4px_4px_0_0_rgb(0,0,0)]";
+const neoPanel =
+  "rounded-xl border-2 border-zinc-900 bg-white shadow-[3px_3px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[3px_3px_0_0_rgb(0,0,0)]";
+const neoControl =
+  "border-2 border-zinc-900 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]";
+const neoButton = `${neoControl} transition hover:-translate-y-0.5 hover:shadow-none`;
+
 function readParam(value: string | string[] | undefined) {
   if (typeof value === "string") return value;
   if (Array.isArray(value)) return value[0] ?? "";
@@ -536,18 +544,22 @@ function PopupShell({
         aria-label={`${title} 닫기`}
       />
 
-      <div className={cn("relative w-full rounded-xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900", widthClassName)}>
-        <div className="flex items-start justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
+      <div className={cn(`relative w-full ${neoCard}`, widthClassName)}>
+        <div className="flex items-start justify-between border-b-2 border-zinc-900 px-4 py-3 dark:border-zinc-100">
           <div className="min-w-0">
             <h2 className="truncate text-base font-semibold">{title}</h2>
             {description ? <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{description}</p> : null}
           </div>
-          <Button type="button" size="icon" variant="ghost" onClick={onClose}>
+          <Button type="button" size="icon" variant="ghost" onClick={onClose} className={neoButton}>
             <X className="h-4 w-4" />
           </Button>
         </div>
 
-        <div className="max-h-[78vh] overflow-auto p-4">{children}</div>
+        <div
+          className="max-h-[78vh] overflow-auto p-4 [&_button]:border-2 [&_button]:border-zinc-900 [&_button]:shadow-[2px_2px_0_0_rgb(24,24,27)] [&_button]:transition [&_button:hover]:-translate-y-0.5 [&_button:hover]:shadow-none dark:[&_button]:border-zinc-100 dark:[&_button]:shadow-[2px_2px_0_0_rgb(0,0,0)] [&_input]:border-2 [&_input]:border-zinc-900 [&_input]:shadow-[2px_2px_0_0_rgb(24,24,27)] dark:[&_input]:border-zinc-100 dark:[&_input]:shadow-[2px_2px_0_0_rgb(0,0,0)] [&_select]:border-2 [&_select]:border-zinc-900 [&_select]:shadow-[2px_2px_0_0_rgb(24,24,27)] dark:[&_select]:border-zinc-100 dark:[&_select]:shadow-[2px_2px_0_0_rgb(0,0,0)] [&_textarea]:border-2 [&_textarea]:border-zinc-900 [&_textarea]:shadow-[2px_2px_0_0_rgb(24,24,27)] dark:[&_textarea]:border-zinc-100 dark:[&_textarea]:shadow-[2px_2px_0_0_rgb(0,0,0)]"
+        >
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -1603,7 +1615,7 @@ export default function GanttPage() {
 
   if (!project) {
     return (
-      <Card>
+      <Card className={neoCard}>
         <CardTitle>프로젝트를 찾을 수 없습니다.</CardTitle>
         <CardDescription className="mt-1">잘못된 프로젝트 ID입니다: {projectId}</CardDescription>
       </Card>
@@ -1617,7 +1629,7 @@ export default function GanttPage() {
   return (
     <section className="space-y-3">
       {!writable ? (
-        <Card className="border-amber-200 bg-amber-50/70 dark:border-amber-900 dark:bg-amber-950/30">
+        <Card className={`${neoCard} border-amber-700 bg-amber-100 dark:border-amber-400 dark:bg-amber-950/50`}>
           <CardTitle className="text-amber-800 dark:text-amber-300">읽기 전용 모드</CardTitle>
           <CardDescription className="mt-1 text-amber-700 dark:text-amber-400">
             현재 권한에서는 조회만 가능합니다. 일정 이동/리사이즈, 작업 추가/삭제, 색상/참여자 변경은 Editor 이상에서 사용할 수 있습니다.
@@ -1626,7 +1638,7 @@ export default function GanttPage() {
       ) : null}
 
       <div className="space-y-1">
-        <div className="flex flex-wrap items-center justify-end gap-1.5 py-1">
+        <div className={`flex flex-wrap items-center justify-end gap-1.5 px-2 py-2 ${neoPanel} [&_button]:border-2 [&_button]:border-zinc-900 [&_button]:shadow-[2px_2px_0_0_rgb(24,24,27)] [&_button]:transition [&_button:hover]:-translate-y-0.5 [&_button:hover]:shadow-none dark:[&_button]:border-zinc-100 dark:[&_button]:shadow-[2px_2px_0_0_rgb(0,0,0)]`}>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => shiftWindow(-1)}>
               ← 이전 {scale.label}
@@ -1637,22 +1649,24 @@ export default function GanttPage() {
             <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={jumpToToday}>
               이번 기준으로 이동
             </Button>
-            <div className="flex h-7 items-center gap-1 rounded-md border border-zinc-200 bg-white px-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900">
+            <div className={`flex h-7 items-center gap-1 rounded-md bg-white px-1.5 text-xs dark:bg-zinc-900 ${neoControl}`}>
               <span className="text-[11px] text-zinc-500 dark:text-zinc-400">열</span>
               <button
                 type="button"
-                className="inline-flex h-5 w-5 items-center justify-center rounded border border-zinc-200 text-[11px] text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className={`inline-flex h-5 w-5 items-center justify-center rounded text-[11px] text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 ${neoControl}`}
                 onClick={() => updateTimelineColumnCount(timeScale, timelineColumnCount - 1)}
                 aria-label={`${scale.label} 타임라인 열 수 감소`}
               >
                 −
               </button>
-              <span className="inline-flex h-5 min-w-9 items-center justify-center rounded border border-zinc-200 bg-zinc-50 px-1 text-[11px] font-medium tabular-nums text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200">
+              <span
+                className={`inline-flex h-5 min-w-9 items-center justify-center rounded bg-zinc-50 px-1 text-[11px] font-medium tabular-nums text-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 ${neoControl}`}
+              >
                 {timelineColumnCount}
               </span>
               <button
                 type="button"
-                className="inline-flex h-5 w-5 items-center justify-center rounded border border-zinc-200 text-[11px] text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className={`inline-flex h-5 w-5 items-center justify-center rounded text-[11px] text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 ${neoControl}`}
                 onClick={() => updateTimelineColumnCount(timeScale, timelineColumnCount + 1)}
                 aria-label={`${scale.label} 타임라인 열 수 증가`}
               >
@@ -1720,12 +1734,12 @@ export default function GanttPage() {
         </div>
       </div>
 
-      <Card className="overflow-hidden p-0">
+      <Card className={`${neoCard} overflow-hidden p-0`}>
         <div className="max-h-[76vh] overflow-auto">
             <div className="min-w-max" style={{ width: leftColumnWidth + timelineWidth }}>
-              <div className="sticky top-0 z-40 flex border-b border-zinc-200 bg-zinc-50/95 backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95">
+              <div className="sticky top-0 z-40 flex border-b-2 border-zinc-900 bg-zinc-100/95 backdrop-blur dark:border-zinc-100 dark:bg-zinc-900/95">
                 <div
-                  className="sticky left-0 z-50 shrink-0 border-r border-zinc-200 bg-zinc-100/95 p-3 shadow-[1px_0_0_0_rgba(228,228,231,0.9)] dark:border-zinc-700 dark:bg-zinc-900/95 dark:shadow-[1px_0_0_0_rgba(63,63,70,0.95)]"
+                  className="sticky left-0 z-50 shrink-0 border-r-2 border-zinc-900 bg-zinc-100/95 p-3 shadow-[2px_0_0_0_rgba(24,24,27,0.95)] dark:border-zinc-100 dark:bg-zinc-900/95 dark:shadow-[2px_0_0_0_rgba(228,228,231,0.95)]"
                   style={{ width: leftColumnWidth, minWidth: leftColumnWidth, maxWidth: leftColumnWidth }}
                 >
                   <div className="relative">

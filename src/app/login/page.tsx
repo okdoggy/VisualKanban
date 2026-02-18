@@ -38,39 +38,58 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="grid min-h-screen place-items-center bg-gradient-to-br from-zinc-100 via-white to-zinc-200 p-4 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-950">
-      <Card className="w-full max-w-md border-zinc-300/70 p-6 shadow-xl dark:border-zinc-800">
-        <CardTitle className="text-lg">VisualKanban 로그인</CardTitle>
-        <CardDescription className="mt-1">
+    <div className="grid min-h-screen place-items-center bg-zinc-100 p-4 dark:bg-zinc-950">
+      <Card className="w-full max-w-md border-4 border-zinc-900 bg-amber-100 p-6 shadow-[10px_10px_0_0_#18181b] dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[10px_10px_0_0_#f4f4f5]">
+        <p className="text-[10px] font-black uppercase tracking-[0.24em] text-zinc-700 dark:text-zinc-300">Auth Gateway</p>
+        <CardTitle className="mt-1 text-lg font-black uppercase tracking-wide text-zinc-900 dark:text-zinc-100">VisualKanban 로그인</CardTitle>
+        <CardDescription className="mt-1 font-medium text-zinc-700 dark:text-zinc-300">
           사내 계정으로 로그인하세요. 초기 비밀번호 <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">0000</code> 사용 시
           다음 단계에서 변경이 강제됩니다.
         </CardDescription>
 
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
           <label className="space-y-1.5 text-sm">
-            <span className="text-zinc-600 dark:text-zinc-300">계정</span>
+            <span className="text-[11px] font-black uppercase tracking-[0.16em] text-zinc-700 dark:text-zinc-300">계정</span>
             <div className="relative">
-              <UserRound className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-zinc-500" />
-              <Input value={username} onChange={(e) => setUsername(e.target.value)} className="pl-8" required />
+              <UserRound className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-zinc-600 dark:text-zinc-300" />
+              <Input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="h-11 rounded-none border-2 border-zinc-900 bg-white pl-9 font-semibold text-zinc-900 dark:border-zinc-100 dark:bg-zinc-950 dark:text-zinc-100"
+                required
+              />
             </div>
           </label>
 
           <label className="space-y-1.5 text-sm">
-            <span className="text-zinc-600 dark:text-zinc-300">비밀번호</span>
+            <span className="text-[11px] font-black uppercase tracking-[0.16em] text-zinc-700 dark:text-zinc-300">비밀번호</span>
             <div className="relative">
-              <LockKeyhole className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-zinc-500" />
-              <Input value={password} onChange={(e) => setPassword(e.target.value)} className="pl-8" type="password" required />
+              <LockKeyhole className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-zinc-600 dark:text-zinc-300" />
+              <Input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="h-11 rounded-none border-2 border-zinc-900 bg-white pl-9 font-semibold text-zinc-900 dark:border-zinc-100 dark:bg-zinc-950 dark:text-zinc-100"
+                type="password"
+                required
+              />
             </div>
           </label>
 
-          {error ? <p className="rounded-md bg-rose-100 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">{error}</p> : null}
+          {error ? (
+            <p className="border-2 border-zinc-900 bg-rose-300 px-3 py-2 text-sm font-semibold text-zinc-900 shadow-[3px_3px_0_0_#18181b] dark:border-zinc-100 dark:bg-rose-950/70 dark:text-zinc-100 dark:shadow-[3px_3px_0_0_#f4f4f5]">
+              {error}
+            </p>
+          ) : null}
 
-          <Button type="submit" className="w-full">
+          <Button
+            type="submit"
+            className="h-11 w-full rounded-none border-2 border-zinc-900 bg-lime-300 font-black uppercase tracking-[0.14em] text-zinc-900 shadow-[4px_4px_0_0_#18181b] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[3px_3px_0_0_#18181b] dark:border-zinc-100 dark:bg-lime-400 dark:text-zinc-950 dark:shadow-[4px_4px_0_0_#f4f4f5] dark:hover:shadow-[3px_3px_0_0_#f4f4f5]"
+          >
             로그인
           </Button>
         </form>
 
-        <div className="mt-4 rounded-md border border-zinc-200 p-3 text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+        <div className="mt-4 border-2 border-zinc-900 bg-white p-3 text-xs font-medium text-zinc-700 dark:border-zinc-100 dark:bg-zinc-950 dark:text-zinc-300">
           테스트 계정: {sampleUsers} / 초기 비밀번호: 0000
         </div>
       </Card>

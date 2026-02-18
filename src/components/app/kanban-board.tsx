@@ -167,9 +167,11 @@ const sortModeOrder: SortMode[] = ["updated", "priority_asc", "priority_desc", "
 const KANBAN_STAGE_TAG_PREFIX = "kanban-stage:";
 const KANBAN_PRIORITY_TAG_PREFIX = "kprio:";
 const TOOLBAR_CONTROL_CLASS =
-  "transition-[transform,box-shadow,background-color,border-color,color] duration-150 ease-out hover:-translate-y-0.5 hover:shadow-sm active:translate-y-0 motion-reduce:transform-none motion-reduce:transition-none";
+  "border-2 border-zinc-900 shadow-[2px_2px_0_0_rgb(24,24,27)] transition-[transform,box-shadow,background-color,border-color,color] duration-150 ease-out hover:-translate-y-0.5 hover:shadow-none active:translate-y-0 motion-reduce:transform-none motion-reduce:transition-none dark:border-zinc-100 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]";
 const CARD_INTERACTION_CLASS =
   "transition-[box-shadow,border-color,background-color,opacity] duration-150 ease-out motion-reduce:transition-none";
+const NEO_CARD_CLASS =
+  "rounded-2xl border-2 border-zinc-900 bg-white shadow-[4px_4px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[4px_4px_0_0_rgb(0,0,0)]";
 
 function isTaskStatus(value: string): value is TaskStatus {
   return value === "backlog" || value === "in_progress" || value === "done";
@@ -504,23 +506,25 @@ function PopupShell({
           />
 
           <motion.div
-            className={cn("relative w-full rounded-xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900", widthClassName)}
+            className={cn(`relative w-full ${NEO_CARD_CLASS}`, widthClassName)}
             initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: 10, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: 8, scale: 0.985 }}
             transition={panelTransition}
           >
-            <div className="flex items-start justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
+            <div className="flex items-start justify-between border-b-2 border-zinc-900 px-4 py-3 dark:border-zinc-100">
               <div className="min-w-0">
                 <h2 className="truncate text-base font-semibold">{title}</h2>
                 {description ? <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{description}</p> : null}
               </div>
-              <Button type="button" size="icon" variant="ghost" onClick={onClose}>
+              <Button type="button" size="icon" variant="ghost" onClick={onClose} className={TOOLBAR_CONTROL_CLASS}>
                 <X className="h-4 w-4" />
               </Button>
             </div>
 
-            <div className="max-h-[78vh] overflow-auto p-4">{children}</div>
+            <div className="max-h-[78vh] overflow-auto p-4 [&_button]:border-2 [&_button]:border-zinc-900 [&_button]:shadow-[2px_2px_0_0_rgb(24,24,27)] [&_button]:transition [&_button:hover]:-translate-y-0.5 [&_button:hover]:shadow-none dark:[&_button]:border-zinc-100 dark:[&_button]:shadow-[2px_2px_0_0_rgb(0,0,0)] [&_input]:border-2 [&_input]:border-zinc-900 [&_input]:shadow-[2px_2px_0_0_rgb(24,24,27)] dark:[&_input]:border-zinc-100 dark:[&_input]:shadow-[2px_2px_0_0_rgb(0,0,0)] [&_select]:border-2 [&_select]:border-zinc-900 [&_select]:shadow-[2px_2px_0_0_rgb(24,24,27)] dark:[&_select]:border-zinc-100 dark:[&_select]:shadow-[2px_2px_0_0_rgb(0,0,0)] [&_textarea]:border-2 [&_textarea]:border-zinc-900 [&_textarea]:shadow-[2px_2px_0_0_rgb(24,24,27)] dark:[&_textarea]:border-zinc-100 dark:[&_textarea]:shadow-[2px_2px_0_0_rgb(0,0,0)]">
+              {children}
+            </div>
           </motion.div>
         </motion.div>
       ) : null}
@@ -1098,7 +1102,7 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
 
   if (!project) {
     return (
-      <Card>
+      <Card className={NEO_CARD_CLASS}>
         <CardTitle>Project not found</CardTitle>
         <CardDescription className="mt-1">
           The project ID <code>{projectId}</code> does not exist.
@@ -1121,7 +1125,7 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
 
   return (
     <section className="space-y-3" aria-label="Kanban board">
-      <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-zinc-200/80 bg-white/90 px-2.5 py-2 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/65">
+      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border-2 border-zinc-900 bg-white px-2.5 py-2 shadow-[3px_3px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[3px_3px_0_0_rgb(0,0,0)]">
         <Button
           size="sm"
           variant={projectPopupOpen ? "secondary" : "outline"}
@@ -1213,7 +1217,7 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
 
         <DragOverlay>
           {activeTask ? (
-            <div className={cn("w-[300px] rounded-md border p-2.5 shadow-xl", taskSurfaceTone(readKanbanStage(activeTask)))}>
+            <div className={cn("w-[300px] rounded-xl border-2 border-zinc-900 p-2.5 shadow-[4px_4px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:shadow-[4px_4px_0_0_rgb(0,0,0)]", taskSurfaceTone(readKanbanStage(activeTask)))}>
               <span className={cn("mb-2 block h-1.5 w-10 rounded-full", taskAccentTone(readKanbanStage(activeTask)))} />
               <p className="text-sm font-semibold">{activeTask.title}</p>
               <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
@@ -1774,8 +1778,8 @@ function KanbanColumn({
     <section
       ref={setNodeRef}
       className={cn(
-        "rounded-lg border border-zinc-200/80 bg-zinc-50/45 p-2.5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/30",
-        isOver && writable && "border-sky-300 bg-sky-50/55 dark:border-sky-700 dark:bg-sky-950/25"
+        "rounded-xl border-2 border-zinc-900 bg-zinc-100 p-2.5 shadow-[3px_3px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-900/50 dark:shadow-[3px_3px_0_0_rgb(0,0,0)]",
+        isOver && writable && "border-sky-600 bg-sky-100/65 dark:border-sky-400 dark:bg-sky-950/40"
       )}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -1802,7 +1806,7 @@ function KanbanColumn({
             />
           ))}
           {tasks.length === 0 ? (
-            <div className="rounded-md border border-dashed border-zinc-300/90 px-3 py-5 text-center text-xs text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+            <div className="rounded-md border-2 border-dashed border-zinc-900 px-3 py-5 text-center text-xs text-zinc-500 dark:border-zinc-100 dark:text-zinc-400">
               Drop tasks here
             </div>
           ) : null}
@@ -1815,7 +1819,7 @@ function KanbanColumn({
 function UserAvatar({ user, fallbackLabel }: { user?: User; fallbackLabel: string }) {
   const symbol = user?.icon?.trim() || fallbackLabel.trim().charAt(0).toUpperCase() || "?";
   return (
-    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-zinc-200 text-[10px] font-semibold text-zinc-700 dark:bg-zinc-700 dark:text-zinc-100">
+    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-zinc-900 bg-zinc-200 text-[10px] font-semibold text-zinc-700 dark:border-zinc-100 dark:bg-zinc-700 dark:text-zinc-100">
       {symbol}
     </span>
   );
@@ -1872,7 +1876,7 @@ function KanbanTaskCard({
         onOpenDetail(task.id);
       }}
       className={cn(
-        "group relative rounded-md border px-2.5 py-2 shadow-[0_1px_0_rgba(15,23,42,0.08)] outline-none",
+        "group relative rounded-xl border-2 border-zinc-900 px-2.5 py-2 shadow-[3px_3px_0_0_rgb(24,24,27)] outline-none dark:border-zinc-100 dark:shadow-[3px_3px_0_0_rgb(0,0,0)]",
         CARD_INTERACTION_CLASS,
         taskSurfaceTone(stage),
         writable ? "cursor-grab active:cursor-grabbing" : "",

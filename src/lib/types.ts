@@ -13,6 +13,14 @@ export type FeatureKey =
 
 export type TaskStatus = "backlog" | "in_progress" | "done";
 export type TaskPriority = "low" | "medium" | "high";
+export type TodoPriority = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+export type TodoRecurrenceType = "none" | "daily" | "weekly";
+export type TodoWeekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
+export type TodoRecurrence =
+  | { type: "none" }
+  | { type: "daily" }
+  | { type: "weekly"; weekdays: TodoWeekday[] };
 
 export interface User {
   id: string;
@@ -59,6 +67,25 @@ export interface Task {
   tags: string[];
   updatedAt: string;
 }
+
+export interface PersonalTodo {
+  id: string;
+  ownerId: string;
+  title: string;
+  description: string;
+  completed: boolean;
+  completedAt: string | null;
+  priority: TodoPriority;
+  recurrence: TodoRecurrence;
+  repeatColor: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AddTodoInput = Pick<PersonalTodo, "title"> &
+  Partial<Pick<PersonalTodo, "description" | "priority" | "recurrence" | "repeatColor">>;
+
+export type UpdateTodoInput = Partial<Pick<PersonalTodo, "title" | "description" | "priority" | "recurrence" | "repeatColor" | "completed">>;
 
 export type KanbanTaskStatus = TaskStatus | "todo";
 
@@ -111,6 +138,7 @@ export interface VisualKanbanState {
   users: User[];
   projects: Project[];
   permissions: PermissionAssignment[];
+  personalTodos: PersonalTodo[];
   tasks: Task[];
   kanbanTasks: Task[];
   kanbanHistory: KanbanHistoryItem[];
@@ -126,6 +154,12 @@ export interface VisualKanbanState {
   changePassword: (nextPassword: string) => { ok: boolean; reason?: string };
   updateMyIcon: (nextIcon: string) => { ok: boolean; reason?: string };
   addProject: (input: Pick<Project, "name" | "description">) => { ok: boolean; reason?: string; projectId?: string };
+
+  addTodo: (input: AddTodoInput) => { ok: boolean; reason?: string; todoId?: string };
+  updateTodo: (todoId: string, patch: UpdateTodoInput) => { ok: boolean; reason?: string };
+  toggleTodo: (todoId: string, forceCompleted?: boolean) => { ok: boolean; reason?: string };
+  removeTodo: (todoId: string) => { ok: boolean; reason?: string };
+  cleanupTodos: () => { removed: number; reactivated: number };
 
   addTask: (input: AddTaskInput) => void;
   addKanbanTask: (input: AddTaskInput) => void;

@@ -1,4 +1,4 @@
-import type { Activity, Comment, KanbanHistoryItem, MindmapNode, PermissionAssignment, Project, Task, User } from "@/lib/types";
+import type { Activity, Comment, KanbanHistoryItem, MindmapNode, PermissionAssignment, PersonalTodo, Project, Task, User } from "@/lib/types";
 
 const now = new Date().toISOString();
 const nowDate = new Date();
@@ -99,6 +99,48 @@ export const seedPermissions: PermissionAssignment[] = [
     userId: "u-me",
     role: "private",
     updatedAt: now
+  }
+];
+
+export const seedPersonalTodos: PersonalTodo[] = [
+  {
+    id: "todo-1",
+    ownerId: "u-me",
+    title: "아침 스탠드업 준비",
+    description: "어제/오늘/블로커 3줄로 정리",
+    completed: false,
+    completedAt: null,
+    priority: 5,
+    recurrence: { type: "daily" },
+    repeatColor: "#0ea5e9",
+    createdAt: addDays(week0, 1).toISOString(),
+    updatedAt: addDays(week0, 1).toISOString()
+  },
+  {
+    id: "todo-2",
+    ownerId: "u-me",
+    title: "주간 회고 정리",
+    description: "매주 금요일 배운 점 3개 기록",
+    completed: false,
+    completedAt: null,
+    priority: 4,
+    recurrence: { type: "weekly", weekdays: [5] },
+    repeatColor: "#8b5cf6",
+    createdAt: addDays(week0, 0).toISOString(),
+    updatedAt: addDays(week0, 0).toISOString()
+  },
+  {
+    id: "todo-3",
+    ownerId: "u-editor",
+    title: "개인 학습 일정 체크",
+    description: "React 19 변경사항 요약 읽기",
+    completed: true,
+    completedAt: addDays(week1, 0).toISOString(),
+    priority: 3,
+    recurrence: { type: "none" },
+    repeatColor: "#f59e0b",
+    createdAt: addDays(week0, 2).toISOString(),
+    updatedAt: addDays(week1, 0).toISOString()
   }
 ];
 

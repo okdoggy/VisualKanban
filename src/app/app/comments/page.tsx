@@ -11,6 +11,11 @@ import { canRead } from "@/lib/permissions/roles";
 import { getCurrentUser, getEffectiveRoleForFeature, getVisibleTasks, useVisualKanbanStore } from "@/lib/store";
 import { useShallow } from "zustand/react/shallow";
 
+const neoCard =
+  "rounded-2xl border-2 border-zinc-900 bg-white shadow-[4px_4px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[4px_4px_0_0_rgb(0,0,0)]";
+const neoControl =
+  "border-2 border-zinc-900 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]";
+
 function formatDateTime(value: string) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "-";
@@ -153,11 +158,11 @@ export default function CommentsPage() {
         role={(roleByProject.get(readableProjectIds[0]) ?? "none").toString()}
       />
 
-      <Card className="space-y-3">
+      <Card className={`${neoCard} space-y-3`}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle>Aggregated Threads</CardTitle>
           <div className="w-full max-w-sm">
-            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="태스크/작성자/댓글 내용 검색" />
+            <Input className={neoControl} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="태스크/작성자/댓글 내용 검색" />
           </div>
         </div>
         <CardDescription>
@@ -167,20 +172,20 @@ export default function CommentsPage() {
       </Card>
 
       {threads.length === 0 ? (
-        <Card>
+        <Card className={neoCard}>
           <CardTitle>표시할 댓글 스레드가 없습니다.</CardTitle>
           <CardDescription className="mt-1">검색 조건을 바꾸거나 새 댓글을 작성해 보세요.</CardDescription>
         </Card>
       ) : (
         <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
-          <Card className="h-fit xl:sticky xl:top-28">
+          <Card className={`${neoCard} h-fit xl:sticky xl:top-28`}>
             <CardTitle>Quick Jump</CardTitle>
             <div className="mt-3 space-y-2">
               {threads.map((thread) => (
                 <a
                   key={thread.taskId}
                   href={`#thread-${thread.taskId}`}
-                  className="block rounded-md border border-zinc-200 px-3 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                  className="block rounded-lg border-2 border-zinc-900 bg-zinc-100 px-3 py-2 text-sm shadow-[2px_2px_0_0_rgb(24,24,27)] transition hover:-translate-y-0.5 hover:shadow-none dark:border-zinc-100 dark:bg-zinc-800 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
                 >
                   <p className="line-clamp-1 font-medium">{thread.taskTitle}</p>
                   <p className="text-xs text-zinc-500">{thread.commentCount} comments</p>
@@ -191,7 +196,7 @@ export default function CommentsPage() {
 
           <div className="space-y-3">
             {threads.map((thread) => (
-              <Card key={thread.taskId} id={`thread-${thread.taskId}`} className="scroll-mt-28">
+              <Card key={thread.taskId} id={`thread-${thread.taskId}`} className={`${neoCard} scroll-mt-28`}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <CardTitle>{thread.taskTitle}</CardTitle>
@@ -212,7 +217,10 @@ export default function CommentsPage() {
 
                 <div className="mt-4 space-y-2">
                   {thread.items.map((item) => (
-                    <div key={item.id} className="rounded-md border border-zinc-200/80 p-3 dark:border-zinc-700/80">
+                    <div
+                      key={item.id}
+                      className="rounded-lg border-2 border-zinc-900 bg-zinc-50 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
+                    >
                       <div className="mb-1 flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
                         <span>{item.authorName}</span>
                         <span>{formatDateTime(item.createdAt)}</span>

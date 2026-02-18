@@ -11,6 +11,11 @@ import { getCurrentUser, getEffectiveRoleForFeature, useVisualKanbanStore } from
 import type { AccessRole, FeatureKey } from "@/lib/types";
 import { useShallow } from "zustand/react/shallow";
 
+const neoCard =
+  "rounded-2xl border-2 border-zinc-900 bg-white shadow-[4px_4px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[4px_4px_0_0_rgb(0,0,0)]";
+const neoControl =
+  "border-2 border-zinc-900 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]";
+
 const features: FeatureKey[] = ["project", "kanban", "mindmap", "gantt", "taskboard", "todo", "search", "comments"];
 const roles: AccessRole[] = ["admin", "editor", "viewer", "private"];
 
@@ -105,7 +110,7 @@ export default function PermissionsPage() {
 
   if (!project) {
     return (
-      <Card>
+      <Card className={neoCard}>
         <CardTitle>프로젝트를 찾을 수 없습니다.</CardTitle>
         <CardDescription className="mt-1">잘못된 프로젝트 ID입니다: {projectId}</CardDescription>
       </Card>
@@ -124,7 +129,7 @@ export default function PermissionsPage() {
             <select
               value={effectiveSelectedUserId}
               onChange={(event) => setSelectedUserId(event.target.value)}
-              className="h-9 rounded-md border border-zinc-200 bg-white px-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+              className={`h-9 rounded-md bg-white px-2 text-sm dark:bg-zinc-900 ${neoControl}`}
             >
               {users.map((user) => (
                 <option key={user.id} value={user.id}>
@@ -136,11 +141,14 @@ export default function PermissionsPage() {
         }
       />
 
-      <Card>
+      <Card className={neoCard}>
         <CardTitle>Role Guide</CardTitle>
         <div className="mt-3 grid gap-2 md:grid-cols-2">
           {roles.map((role) => (
-            <div key={role} className="rounded-lg border border-zinc-200/80 p-3 dark:border-zinc-700/80">
+            <div
+              key={role}
+              className="rounded-xl border-2 border-zinc-900 bg-zinc-50 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
+            >
               <div className="flex items-center gap-2">
                 <Badge variant={roleVariant(role)}>{role.toUpperCase()}</Badge>
                 <span className="text-sm font-medium">{roleDescription[role]}</span>
@@ -151,8 +159,8 @@ export default function PermissionsPage() {
         <CardDescription className="mt-3">기본값은 Viewer입니다. 필요할 때만 더 높은 권한을 부여하세요.</CardDescription>
       </Card>
 
-      <Card className="overflow-hidden p-0">
-        <div className="grid grid-cols-[1.1fr_1fr_1fr] border-b border-zinc-200 bg-zinc-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/80 dark:text-zinc-400">
+      <Card className={`${neoCard} overflow-hidden p-0`}>
+        <div className="grid grid-cols-[1.1fr_1fr_1fr] border-b-2 border-zinc-900 bg-zinc-100 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-zinc-700 dark:border-zinc-100 dark:bg-zinc-800 dark:text-zinc-200">
           <span>Feature</span>
           <span>Assigned Role</span>
           <span>Status</span>
@@ -166,7 +174,7 @@ export default function PermissionsPage() {
           return (
             <div
               key={feature}
-              className="grid grid-cols-[1.1fr_1fr_1fr] items-center gap-3 border-b border-zinc-200/80 px-4 py-3 text-sm last:border-b-0 dark:border-zinc-800/90"
+              className="grid grid-cols-[1.1fr_1fr_1fr] items-center gap-3 border-b border-zinc-300/90 px-4 py-3 text-sm last:border-b-0 dark:border-zinc-700/90"
             >
               <div>
                 <p className="font-medium">{featureLabel[feature]}</p>
@@ -181,7 +189,7 @@ export default function PermissionsPage() {
                     if (!selectedUser) return;
                     setPermission(projectId, feature, selectedUser.id, event.target.value as AccessRole);
                   }}
-                  className="h-9 rounded-md border border-zinc-200 bg-white px-2 text-sm disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900"
+                  className={`h-9 rounded-md bg-white px-2 text-sm disabled:cursor-not-allowed disabled:opacity-60 dark:bg-zinc-900 ${neoControl}`}
                 >
                   {roles.map((option) => (
                     <option key={option} value={option}>
@@ -201,13 +209,13 @@ export default function PermissionsPage() {
       </Card>
 
       {!canManage ? (
-        <Card className="border-amber-200/80 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/30">
+        <Card className={`${neoCard} border-amber-700 bg-amber-100 dark:border-amber-400 dark:bg-amber-950/50`}>
           <CardDescription>현재 계정은 읽기 전용입니다. 권한 변경은 Admin 권한이 필요합니다.</CardDescription>
         </Card>
       ) : null}
 
       {selectedUser ? (
-        <Card>
+        <Card className={neoCard}>
           <CardDescription>
             현재 대상 사용자: <span className="font-medium">{selectedUser.displayName}</span> ({selectedUser.username})
           </CardDescription>

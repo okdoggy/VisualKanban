@@ -14,6 +14,11 @@ import { getCurrentUser, getEffectiveRoleForFeature, useVisualKanbanStore } from
 import type { TaskPriority, TaskStatus } from "@/lib/types";
 import { useShallow } from "zustand/react/shallow";
 
+const neoCard =
+  "rounded-2xl border-2 border-zinc-900 bg-white shadow-[4px_4px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[4px_4px_0_0_rgb(0,0,0)]";
+const neoControl =
+  "border-2 border-zinc-900 shadow-[2px_2px_0_0_rgb(24,24,27)] transition hover:-translate-y-0.5 hover:shadow-none dark:border-zinc-100 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]";
+
 const statuses: TaskStatus[] = ["backlog", "in_progress", "done"];
 
 const statusLabel: Record<TaskStatus, string> = {
@@ -107,7 +112,7 @@ export default function ProjectBoardPage() {
 
   if (!currentUser) {
     return (
-      <Card className="p-8">
+      <Card className={`${neoCard} p-8`}>
         <CardTitle>Loading task board…</CardTitle>
         <CardDescription className="mt-2">Preparing table view and role-aware actions.</CardDescription>
       </Card>
@@ -116,7 +121,7 @@ export default function ProjectBoardPage() {
 
   if (!projectId || !project) {
     return (
-      <Card className="p-8">
+      <Card className={`${neoCard} p-8`}>
         <CardTitle>Project not found</CardTitle>
         <CardDescription className="mt-2">Check the project route and try again.</CardDescription>
       </Card>
@@ -140,7 +145,7 @@ export default function ProjectBoardPage() {
         role={role.toUpperCase()}
         actions={
           <div className="flex items-center gap-2">
-            <Button variant="secondary" size="sm" onClick={() => router.push(`/app/projects/${project.id}/kanban`)}>
+            <Button className={neoControl} variant="secondary" size="sm" onClick={() => router.push(`/app/projects/${project.id}/kanban`)}>
               <Table2 className="h-4 w-4" />
               Open Kanban
             </Button>
@@ -149,7 +154,7 @@ export default function ProjectBoardPage() {
       />
 
       {!writable ? (
-        <Card className="border-amber-200 bg-amber-50/70 dark:border-amber-900 dark:bg-amber-950/30">
+        <Card className={`${neoCard} border-amber-700 bg-amber-100 dark:border-amber-400 dark:bg-amber-950/50`}>
           <CardTitle className="text-amber-800 dark:text-amber-300">Read-only mode</CardTitle>
           <CardDescription className="mt-1 text-amber-700 dark:text-amber-400">
             You can open details, but only editor/admin roles can change statuses.
@@ -158,24 +163,30 @@ export default function ProjectBoardPage() {
       ) : null}
 
       {feedback ? (
-        <Card className={feedback.tone === "success" ? "border-emerald-200 bg-emerald-50/70" : "border-rose-200 bg-rose-50/70"}>
+        <Card
+          className={`${neoCard} ${feedback.tone === "success" ? "border-emerald-700 bg-emerald-100 dark:border-emerald-400 dark:bg-emerald-950/50" : "border-rose-700 bg-rose-100 dark:border-rose-400 dark:bg-rose-950/50"}`}
+        >
           <CardDescription className={feedback.tone === "success" ? "text-emerald-700" : "text-rose-700"}>{feedback.message}</CardDescription>
         </Card>
       ) : null}
 
-      <Card>
+      <Card className={neoCard}>
         <div className="grid gap-2 lg:grid-cols-[2fr_auto]">
           <Input
+            className="border-2 border-zinc-900 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Filter tasks by title or description…"
             aria-label="Filter board tasks"
           />
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant={statusFilter === "all" ? "default" : "outline"} size="sm" onClick={() => setStatusFilter("all")}>All</Button>
+            <Button className={neoControl} variant={statusFilter === "all" ? "default" : "outline"} size="sm" onClick={() => setStatusFilter("all")}>
+              All
+            </Button>
             {statuses.map((status) => (
               <Button
                 key={status}
+                className={neoControl}
                 variant={statusFilter === status ? "default" : "outline"}
                 size="sm"
                 onClick={() => setStatusFilter(status)}
@@ -187,7 +198,7 @@ export default function ProjectBoardPage() {
         </div>
       </Card>
 
-      <Card className="overflow-hidden p-0">
+      <Card className={`${neoCard} overflow-hidden p-0`}>
         {projectTasks.length === 0 ? (
           <div className="p-8 text-center">
             <CardTitle>No tasks to display</CardTitle>
@@ -196,20 +207,20 @@ export default function ProjectBoardPage() {
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
-              <thead className="bg-zinc-100/70 text-xs uppercase tracking-wide text-zinc-600 dark:bg-zinc-800/60 dark:text-zinc-300">
+              <thead className="bg-zinc-100 text-xs uppercase tracking-wide text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
                 <tr>
-                  <th className="px-4 py-3 text-left">Task</th>
-                  <th className="px-4 py-3 text-left">Assignee</th>
-                  <th className="px-4 py-3 text-left">Status</th>
-                  <th className="px-4 py-3 text-left">Priority</th>
-                  <th className="px-4 py-3 text-left">Due</th>
+                  <th className="border-b-2 border-zinc-900 px-4 py-3 text-left dark:border-zinc-100">Task</th>
+                  <th className="border-b-2 border-zinc-900 px-4 py-3 text-left dark:border-zinc-100">Assignee</th>
+                  <th className="border-b-2 border-zinc-900 px-4 py-3 text-left dark:border-zinc-100">Status</th>
+                  <th className="border-b-2 border-zinc-900 px-4 py-3 text-left dark:border-zinc-100">Priority</th>
+                  <th className="border-b-2 border-zinc-900 px-4 py-3 text-left dark:border-zinc-100">Due</th>
                 </tr>
               </thead>
               <tbody>
                 {projectTasks.map((task) => (
                   <tr
                     key={task.id}
-                    className="cursor-pointer border-t border-zinc-200 transition hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900/60"
+                    className="cursor-pointer border-t border-zinc-300 transition hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800/70"
                     onClick={() => router.push(`/app/projects/${project.id}/tasks/${task.id}`)}
                   >
                     <td className="px-4 py-3">
@@ -222,7 +233,7 @@ export default function ProjectBoardPage() {
                         value={task.status}
                         onChange={(event) => updateStatus(task.id, event.target.value as TaskStatus)}
                         disabled={!writable}
-                        className="h-8 rounded-md border border-zinc-200 bg-white px-2 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                        className="h-8 rounded-md border-2 border-zinc-900 bg-white px-2 text-xs shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
                       >
                         {statuses.map((status) => (
                           <option key={status} value={status}>

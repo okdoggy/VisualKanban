@@ -2,11 +2,11 @@ import { cn } from "@/lib/utils/cn";
 import * as React from "react";
 
 const styles = {
-  neutral: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200",
-  info: "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
-  success: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
-  warning: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
-  danger: "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"
+  neutral: "bg-zinc-100",
+  info: "bg-sky-200",
+  success: "bg-lime-200",
+  warning: "bg-amber-200",
+  danger: "bg-rose-200"
 } as const;
 
 export function Badge({
@@ -14,5 +14,14 @@ export function Badge({
   variant = "neutral",
   ...props
 }: React.HTMLAttributes<HTMLSpanElement> & { variant?: keyof typeof styles }) {
-  return <span className={cn("inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold", styles[variant], className)} {...props} />;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full border-2 border-zinc-950 px-2.5 py-0.5 text-xs font-bold text-zinc-900 shadow-[2px_2px_0_0_#111827] dark:border-zinc-100 dark:text-zinc-950 dark:shadow-[2px_2px_0_0_rgba(15,23,42,0.95)]",
+        styles[variant],
+        className
+      )}
+      {...props}
+    />
+  );
 }

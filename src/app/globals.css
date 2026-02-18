@@ -1,14 +1,26 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
+  --neo-bg: #f5f2ff;
+  --neo-fg: #101012;
+  --neo-surface: #fffdfa;
+  --neo-surface-strong: #ffffff;
+  --neo-border: #101012;
+  --neo-shadow: 5px 5px 0 0 var(--neo-border);
+  --neo-shadow-soft: 2px 2px 0 0 var(--neo-border);
+  --neo-focus: #22d3ee;
 }
 
 body {
-  @apply bg-zinc-50 text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100;
+  @apply antialiased;
+  background-color: #f3f4ff;
+  color: var(--neo-fg);
 }
 
 * {
+  box-sizing: border-box;
   scrollbar-width: thin;
 }
 
@@ -20,6 +32,93 @@ body {
 ::-webkit-scrollbar-thumb {
   background: rgba(120, 120, 120, 0.4);
   border-radius: 999px;
+}
+
+.neo-panel {
+  border: 3px solid var(--neo-border);
+  border-radius: 1rem;
+  background: var(--neo-surface);
+  box-shadow: var(--neo-shadow);
+}
+
+.neo-inset {
+  border: 3px solid var(--neo-border);
+  border-radius: 0.75rem;
+  background: var(--neo-surface-strong);
+  box-shadow: inset 2px 2px 0 0 rgb(15 23 42 / 0.16);
+}
+
+.neo-pressable {
+  transition: transform 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+
+.neo-pressable:active {
+  transform: translate(3px, 3px);
+  box-shadow: none;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="hidden"]):not([data-unstyled]),
+select:not([data-unstyled]),
+textarea:not([data-unstyled]) {
+  border: 3px solid var(--neo-border);
+  border-radius: 0.75rem;
+  background: var(--neo-surface-strong);
+  color: var(--neo-fg);
+  box-shadow: var(--neo-shadow-soft);
+  transition: box-shadow 120ms ease, transform 120ms ease, background-color 120ms ease;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="hidden"]):not([data-unstyled]):focus-visible,
+select:not([data-unstyled]):focus-visible,
+textarea:not([data-unstyled]):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--neo-focus), var(--neo-shadow-soft);
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="hidden"]):not([data-unstyled]):disabled,
+select:not([data-unstyled]):disabled,
+textarea:not([data-unstyled]):disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+  box-shadow: none;
+}
+
+textarea:not([data-unstyled]) {
+  min-height: 5.5rem;
+  resize: vertical;
+}
+
+table:not([data-unstyled]) {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 3px solid var(--neo-border);
+  border-radius: 1rem;
+  background: var(--neo-surface-strong);
+  box-shadow: var(--neo-shadow);
+}
+
+table:not([data-unstyled]) th,
+table:not([data-unstyled]) td {
+  border-right: 2px solid var(--neo-border);
+  border-bottom: 2px solid var(--neo-border);
+  padding: 0.65rem 0.75rem;
+  text-align: left;
+}
+
+table:not([data-unstyled]) th {
+  background: #fef08a;
+  color: #111827;
+  font-weight: 700;
+}
+
+table:not([data-unstyled]) tr:last-child td {
+  border-bottom: 0;
+}
+
+table:not([data-unstyled]) th:last-child,
+table:not([data-unstyled]) td:last-child {
+  border-right: 0;
 }
 
 .grid-dots {

@@ -11,12 +11,14 @@ export function FeatureAccessDenied({
   message?: string;
 }) {
   return (
-    <Card className="border-rose-200/80 bg-rose-50/60 dark:border-rose-900 dark:bg-rose-950/30">
+    <Card className="border-4 border-zinc-900 bg-rose-200 p-4 shadow-[6px_6px_0_0_#18181b] dark:border-zinc-100 dark:bg-rose-950/70 dark:shadow-[6px_6px_0_0_#f4f4f5]">
       <div className="flex items-start gap-3">
-        <ShieldAlert className="mt-0.5 h-5 w-5 text-rose-600" />
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center border-2 border-zinc-900 bg-white text-zinc-900 dark:border-zinc-100 dark:bg-zinc-900 dark:text-zinc-100">
+          <ShieldAlert className="h-4 w-4" />
+        </span>
         <div>
-          <CardTitle>{feature} 접근 불가</CardTitle>
-          <CardDescription className="mt-1 text-rose-700 dark:text-rose-300">{message}</CardDescription>
+          <CardTitle className="text-base font-black uppercase tracking-wide text-zinc-900 dark:text-zinc-100">{feature} 접근 불가</CardTitle>
+          <CardDescription className="mt-1 font-medium text-zinc-700 dark:text-zinc-300">{message}</CardDescription>
         </div>
       </div>
     </Card>

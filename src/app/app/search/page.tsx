@@ -14,6 +14,11 @@ import { canRead, canSeeTask, type EffectiveRole } from "@/lib/permissions/roles
 import { getCurrentUser, getEffectiveRoleForFeature, useVisualKanbanStore } from "@/lib/store";
 import { useShallow } from "zustand/react/shallow";
 
+const neoCard =
+  "rounded-2xl border-2 border-zinc-900 bg-white shadow-[4px_4px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[4px_4px_0_0_rgb(0,0,0)]";
+const neoButton =
+  "border-2 border-zinc-900 shadow-[2px_2px_0_0_rgb(24,24,27)] transition hover:-translate-y-0.5 hover:shadow-none dark:border-zinc-100 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]";
+
 type SearchType = "tasks" | "comments" | "users" | "projects";
 
 const typeOptions: { key: SearchType; label: string }[] = [
@@ -150,7 +155,7 @@ export default function SearchPage() {
 
   if (!currentUser) {
     return (
-      <Card className="p-8">
+      <Card className={`${neoCard} p-8`}>
         <CardTitle>Loading search index…</CardTitle>
         <CardDescription className="mt-2">Gathering tasks, discussions, people, and projects.</CardDescription>
       </Card>
@@ -159,7 +164,7 @@ export default function SearchPage() {
 
   if (projects.length === 0) {
     return (
-      <Card className="p-8">
+      <Card className={`${neoCard} p-8`}>
         <CardTitle>No project connected</CardTitle>
         <CardDescription className="mt-2">Search becomes available when at least one project exists.</CardDescription>
       </Card>
@@ -183,20 +188,28 @@ export default function SearchPage() {
         role={primaryRole.toUpperCase()}
       />
 
-      <Card>
+      <Card className={neoCard}>
         <form onSubmit={submitSearch} className="space-y-3">
           <div className="flex gap-2">
             <div className="relative flex-1">
               <SearchIcon className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-zinc-500" />
-              <Input value={query} onChange={(event) => setQuery(event.target.value)} className="pl-8" placeholder="Try: dashboard, blocker, @admin…" />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                className="border-2 border-zinc-900 pl-8 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
+                placeholder="Try: dashboard, blocker, @admin…"
+              />
             </div>
-            <Button type="submit">Search</Button>
+            <Button className={neoButton} type="submit">
+              Search
+            </Button>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             {typeOptions.map((typeOption) => (
               <Button
                 key={typeOption.key}
+                className={neoButton}
                 size="sm"
                 variant={enabledTypes.includes(typeOption.key) ? "default" : "outline"}
                 onClick={() => toggleType(typeOption.key)}
@@ -211,19 +224,19 @@ export default function SearchPage() {
       </Card>
 
       {!needle ? (
-        <Card className="p-8 text-center">
+        <Card className={`${neoCard} p-8 text-center`}>
           <CardTitle>Start typing to search</CardTitle>
           <CardDescription className="mt-2">Use global keywords, task IDs, @mentions, or project names for faster navigation.</CardDescription>
         </Card>
       ) : totalResults === 0 ? (
-        <Card className="p-8 text-center">
+        <Card className={`${neoCard} p-8 text-center`}>
           <CardTitle>No results for “{query.trim()}”</CardTitle>
           <CardDescription className="mt-2">Try broader terms or re-enable more result types.</CardDescription>
         </Card>
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
           {enabledTypes.includes("tasks") ? (
-            <Card>
+            <Card className={neoCard}>
               <div className="mb-3 flex items-center gap-2">
                 <Wrench className="h-4 w-4 text-sky-500" />
                 <CardTitle>Tasks</CardTitle>
@@ -237,7 +250,7 @@ export default function SearchPage() {
                     <li key={task.id}>
                       <Link
                         href={`/app/projects/${task.projectId}/tasks/${task.id}`}
-                        className="block rounded-lg border border-zinc-200 p-3 transition hover:border-zinc-400 dark:border-zinc-700"
+                        className="block rounded-lg border-2 border-zinc-900 bg-zinc-100 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] transition hover:-translate-y-0.5 hover:shadow-none dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
                       >
                         <p className="text-sm font-medium">{task.title}</p>
                         <p className="mt-1 text-xs text-zinc-500">{task.description}</p>
@@ -250,7 +263,7 @@ export default function SearchPage() {
           ) : null}
 
           {enabledTypes.includes("comments") ? (
-            <Card>
+            <Card className={neoCard}>
               <div className="mb-3 flex items-center gap-2">
                 <MessageSquare className="h-4 w-4 text-violet-500" />
                 <CardTitle>Comments</CardTitle>
@@ -269,7 +282,7 @@ export default function SearchPage() {
                       <li key={comment.id}>
                         <Link
                           href={`/app/projects/${task.projectId}/tasks/${task.id}?comment=${comment.id}`}
-                          className="block rounded-lg border border-zinc-200 p-3 transition hover:border-zinc-400 dark:border-zinc-700"
+                          className="block rounded-lg border-2 border-zinc-900 bg-zinc-100 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] transition hover:-translate-y-0.5 hover:shadow-none dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
                         >
                           <p className="line-clamp-2 text-sm">{comment.body}</p>
                           <p className="mt-1 text-xs text-zinc-500">
@@ -285,7 +298,7 @@ export default function SearchPage() {
           ) : null}
 
           {enabledTypes.includes("users") ? (
-            <Card>
+            <Card className={neoCard}>
               <div className="mb-3 flex items-center gap-2">
                 <UserRound className="h-4 w-4 text-emerald-500" />
                 <CardTitle>Users</CardTitle>
@@ -297,7 +310,10 @@ export default function SearchPage() {
                 <ul className="space-y-2">
                   {userResults.map((user) => (
                     <li key={user.id}>
-                      <Link href={`/app/admin/users?user=${user.id}`} className="block rounded-lg border border-zinc-200 p-3 transition hover:border-zinc-400 dark:border-zinc-700">
+                      <Link
+                        href={`/app/admin/users?user=${user.id}`}
+                        className="block rounded-lg border-2 border-zinc-900 bg-zinc-100 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] transition hover:-translate-y-0.5 hover:shadow-none dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
+                      >
                         <p className="text-sm font-medium">{user.displayName}</p>
                         <p className="text-xs text-zinc-500">@{user.username} · {user.baseRole.toUpperCase()}</p>
                       </Link>
@@ -309,7 +325,7 @@ export default function SearchPage() {
           ) : null}
 
           {enabledTypes.includes("projects") ? (
-            <Card>
+            <Card className={neoCard}>
               <div className="mb-3 flex items-center gap-2">
                 <SquareKanban className="h-4 w-4 text-amber-500" />
                 <CardTitle>Projects</CardTitle>
@@ -321,7 +337,10 @@ export default function SearchPage() {
                 <ul className="space-y-2">
                   {projectResults.map((project) => (
                     <li key={project.id}>
-                      <Link href={`/app/projects/${project.id}/board`} className="block rounded-lg border border-zinc-200 p-3 transition hover:border-zinc-400 dark:border-zinc-700">
+                      <Link
+                        href={`/app/projects/${project.id}/board`}
+                        className="block rounded-lg border-2 border-zinc-900 bg-zinc-100 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] transition hover:-translate-y-0.5 hover:shadow-none dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
+                      >
                         <p className="text-sm font-medium">{project.name}</p>
                         <p className="text-xs text-zinc-500">{project.description}</p>
                       </Link>

@@ -13,6 +13,9 @@ import { canRead } from "@/lib/permissions/roles";
 import { getCurrentUser, getEffectiveRoleForFeature, useVisualKanbanStore } from "@/lib/store";
 import { useShallow } from "zustand/react/shallow";
 
+const neoCard =
+  "rounded-2xl border-2 border-zinc-900 bg-white shadow-[4px_4px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[4px_4px_0_0_rgb(0,0,0)]";
+
 type FlowNodeData = {
   label: string;
   taskId?: string;
@@ -114,7 +117,7 @@ export default function MindmapPage() {
 
   if (!project) {
     return (
-      <Card>
+      <Card className={neoCard}>
         <CardTitle>프로젝트를 찾을 수 없습니다.</CardTitle>
         <CardDescription className="mt-1">잘못된 프로젝트 ID입니다: {projectId}</CardDescription>
       </Card>
@@ -130,17 +133,17 @@ export default function MindmapPage() {
       />
 
       {flowNodes.length === 0 ? (
-        <Card>
+        <Card className={neoCard}>
           <CardTitle>Mindmap 데이터가 없습니다.</CardTitle>
           <CardDescription className="mt-1">seed 데이터를 확인해 노드를 추가하세요.</CardDescription>
         </Card>
       ) : (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <Card className="h-[72vh] overflow-hidden p-0">
+          <Card className={`${neoCard} h-[72vh] overflow-hidden p-0`}>
             <MindmapFlow nodes={flowNodes} edges={flowEdges} onNodeClick={handleNodeClick} />
           </Card>
 
-          <Card className="space-y-4">
+          <Card className={`${neoCard} space-y-4`}>
             <div>
               <CardTitle>Task-linked Nodes</CardTitle>
               <CardDescription className="mt-1">클릭 시 즉시 Task Detail로 이동합니다.</CardDescription>
@@ -151,7 +154,7 @@ export default function MindmapPage() {
                 <Link
                   key={node.id}
                   href={`/app/projects/${projectId}/tasks/${node.data.taskId}`}
-                  className="block rounded-md border border-zinc-200 px-3 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                  className="block rounded-lg border-2 border-zinc-900 bg-zinc-100 px-3 py-2 text-sm shadow-[2px_2px_0_0_rgb(24,24,27)] transition hover:-translate-y-0.5 hover:shadow-none dark:border-zinc-100 dark:bg-zinc-800 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium">{node.data.label}</span>
@@ -162,7 +165,7 @@ export default function MindmapPage() {
               {linkedNodes.length === 0 ? <p className="text-sm text-zinc-500">태스크와 연결된 노드가 없습니다.</p> : null}
             </div>
 
-            <div className="rounded-lg border border-zinc-200/80 p-3 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">
+            <div className="rounded-xl border-2 border-zinc-900 bg-zinc-50 p-3 text-xs text-zinc-600 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/70 dark:text-zinc-300 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
               <p className="font-medium">선택된 노드</p>
               {selectedNode ? (
                 <div className="mt-2 space-y-1">

@@ -8,6 +8,7 @@ import {
   seedKanbanHistory,
   seedKanbanTasks,
   seedMindmapNodes,
+  seedPersonalTodos,
   seedPermissions,
   seedProjects,
   seedTasks,
@@ -16,13 +17,19 @@ import {
 import { canSeeTask, resolveRole } from "@/lib/permissions/roles";
 import type {
   AccessRole,
+  AddTodoInput,
   Activity,
   FeatureKey,
   KanbanHistoryItem,
   KanbanTaskPatch,
   KanbanTaskStatus,
+  PersonalTodo,
   Task,
   TaskStatus,
+  TodoPriority,
+  TodoRecurrence,
+  TodoWeekday,
+  UpdateTodoInput,
   User,
   VisualKanbanState
 } from "@/lib/types";
@@ -45,6 +52,161 @@ function writeAuthCookie(userId: string | null) {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+const TODO_PRIORITY_DEFAULT: TodoPriority = 4;
+const TODO_REPEAT_COLOR_DEFAULT = "#22c55e";
+
+function normalizeTodoPriority(priority?: number): TodoPriority {
+  if (!Number.isFinite(priority)) {
+    return TODO_PRIORITY_DEFAULT;
+  }
+
+  const normalized = Math.min(7, Math.max(1, Math.trunc(priority ?? TODO_PRIORITY_DEFAULT)));
+  return normalized as TodoPriority;
+}
+
+function normalizeTodoRepeatColor(repeatColor?: string) {
+  const cleaned = repeatColor?.trim();
+  return cleaned && cleaned.length > 0 ? cleaned : TODO_REPEAT_COLOR_DEFAULT;
+}
+
+function normalizeTodoWeekdays(weekdays?: number[]): TodoWeekday[] {
+  const unique = new Set<TodoWeekday>();
+
+  for (const weekday of weekdays ?? []) {
+    const normalized = Math.trunc(weekday) as TodoWeekday;
+    if (normalized >= 0 && normalized <= 6) {
+      unique.add(normalized);
+    }
+  }
+
+  return [...unique].sort((left, right) => left - right);
+}
+
+function normalizeTodoRecurrence(recurrence?: TodoRecurrence): TodoRecurrence {
+  if (!recurrence || recurrence.type === "none") {
+    return { type: "none" };
+  }
+  if (recurrence.type === "daily") {
+    return { type: "daily" };
+  }
+
+  const weekdays = normalizeTodoWeekdays(recurrence.weekdays);
+  if (weekdays.length === 0) {
+    return { type: "none" };
+  }
+
+  return { type: "weekly", weekdays };
+}
+
+function recurrenceEquals(left: TodoRecurrence, right: TodoRecurrence) {
+  if (left.type !== right.type) return false;
+  if (left.type !== "weekly" || right.type !== "weekly") return true;
+  if (left.weekdays.length !== right.weekdays.length) return false;
+  return left.weekdays.every((weekday, index) => weekday === right.weekdays[index]);
+}
+
+function parseIsoDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function startOfLocalDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function nextLocalMidnight(date: Date) {
+  const next = startOfLocalDay(date);
+  next.setDate(next.getDate() + 1);
+  return next;
+}
+
+function nextWeeklyResetDate(completedAt: Date, weekdays: TodoWeekday[]): Date | null {
+  const normalizedWeekdays = normalizeTodoWeekdays(weekdays);
+  if (normalizedWeekdays.length === 0) return null;
+
+  const start = nextLocalMidnight(completedAt);
+  for (let dayOffset = 0; dayOffset < 14; dayOffset += 1) {
+    const candidate = new Date(start);
+    candidate.setDate(start.getDate() + dayOffset);
+    if (normalizedWeekdays.includes(candidate.getDay() as TodoWeekday)) {
+      candidate.setHours(0, 0, 0, 0);
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function applyTodoLifecycle(todos: PersonalTodo[], ownerId?: string, referenceDate: Date = new Date()) {
+  const now = referenceDate.getTime();
+  const nextUpdatedAt = referenceDate.toISOString();
+  const lifecycle = {
+    todos: [] as PersonalTodo[],
+    removed: 0,
+    reactivated: 0
+  };
+
+  for (const todo of todos) {
+    if (ownerId && todo.ownerId !== ownerId) {
+      lifecycle.todos.push(todo);
+      continue;
+    }
+
+    const normalizedRecurrence = normalizeTodoRecurrence(todo.recurrence);
+    const normalizedPriority = normalizeTodoPriority(todo.priority);
+    const normalizedRepeatColor = normalizeTodoRepeatColor(todo.repeatColor);
+    const normalizedTodo =
+      recurrenceEquals(normalizedRecurrence, todo.recurrence) &&
+      normalizedPriority === todo.priority &&
+      normalizedRepeatColor === todo.repeatColor
+        ? todo
+        : {
+            ...todo,
+            recurrence: normalizedRecurrence,
+            priority: normalizedPriority,
+            repeatColor: normalizedRepeatColor
+          };
+
+    if (!normalizedTodo.completed) {
+      lifecycle.todos.push(normalizedTodo);
+      continue;
+    }
+
+    const completedAt =
+      parseIsoDate(normalizedTodo.completedAt) ?? parseIsoDate(normalizedTodo.updatedAt) ?? parseIsoDate(normalizedTodo.createdAt) ?? referenceDate;
+
+    if (normalizedTodo.recurrence.type === "none") {
+      if (now >= nextLocalMidnight(completedAt).getTime()) {
+        lifecycle.removed += 1;
+        continue;
+      }
+      lifecycle.todos.push(normalizedTodo);
+      continue;
+    }
+
+    const reactivationDate =
+      normalizedTodo.recurrence.type === "daily"
+        ? nextLocalMidnight(completedAt)
+        : nextWeeklyResetDate(completedAt, normalizedTodo.recurrence.weekdays);
+
+    if (reactivationDate && now >= reactivationDate.getTime()) {
+      lifecycle.reactivated += 1;
+      lifecycle.todos.push({
+        ...normalizedTodo,
+        completed: false,
+        completedAt: null,
+        updatedAt: nextUpdatedAt
+      });
+      continue;
+    }
+
+    lifecycle.todos.push(normalizedTodo);
+  }
+
+  return lifecycle;
 }
 
 const persistStorage = typeof window === "undefined" ? undefined : createJSONStorage(() => window.localStorage);
@@ -142,6 +304,7 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       users: seedUsers,
       projects: seedProjects,
       permissions: seedPermissions,
+      personalTodos: seedPersonalTodos,
       tasks: seedTasks,
       kanbanTasks: seedKanbanTasks,
       kanbanHistory: seedKanbanHistory,
@@ -163,6 +326,7 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
 
         writeAuthCookie(user.id);
         set((state) => ({
+          personalTodos: applyTodoLifecycle(state.personalTodos, user.id).todos,
           currentUserId: user.id,
           connectedUserIds: state.connectedUserIds.includes(user.id) ? state.connectedUserIds : [...state.connectedUserIds, user.id],
           sessionCheckedAt: nowIso(),
@@ -264,6 +428,157 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
         }));
 
         return { ok: true, projectId };
+      },
+
+      addTodo: (input: AddTodoInput) => {
+        const currentUserId = get().currentUserId;
+        if (!currentUserId) {
+          return { ok: false, reason: "로그인이 필요합니다." };
+        }
+
+        const title = input.title.trim();
+        if (!title) {
+          return { ok: false, reason: "할 일 제목을 입력해 주세요." };
+        }
+
+        const createdAt = nowIso();
+        const newTodo: PersonalTodo = {
+          id: uid("todo"),
+          ownerId: currentUserId,
+          title,
+          description: input.description?.trim() ?? "",
+          completed: false,
+          completedAt: null,
+          priority: normalizeTodoPriority(input.priority),
+          recurrence: normalizeTodoRecurrence(input.recurrence),
+          repeatColor: normalizeTodoRepeatColor(input.repeatColor),
+          createdAt,
+          updatedAt: createdAt
+        };
+
+        set((state) => ({
+          personalTodos: applyTodoLifecycle([newTodo, ...state.personalTodos], currentUserId).todos
+        }));
+
+        return { ok: true, todoId: newTodo.id };
+      },
+
+      updateTodo: (todoId, patch: UpdateTodoInput) => {
+        const currentUserId = get().currentUserId;
+        if (!currentUserId) {
+          return { ok: false, reason: "로그인이 필요합니다." };
+        }
+
+        const target = get().personalTodos.find((todo) => todo.id === todoId);
+        if (!target) {
+          return { ok: false, reason: "할 일을 찾지 못했습니다." };
+        }
+        if (target.ownerId !== currentUserId) {
+          return { ok: false, reason: "본인 할 일만 수정할 수 있습니다." };
+        }
+
+        if (patch.title !== undefined && !patch.title.trim()) {
+          return { ok: false, reason: "할 일 제목을 입력해 주세요." };
+        }
+
+        const updatedAt = nowIso();
+        set((state) => ({
+          personalTodos: applyTodoLifecycle(
+            state.personalTodos.map((todo) => {
+              if (todo.id !== todoId) return todo;
+
+              const nextCompleted = patch.completed ?? todo.completed;
+              const nextCompletedAt =
+                !nextCompleted ? null : todo.completedAt ? todo.completedAt : updatedAt;
+
+              return {
+                ...todo,
+                title: patch.title === undefined ? todo.title : patch.title.trim(),
+                description: patch.description === undefined ? todo.description : patch.description.trim(),
+                priority: patch.priority === undefined ? todo.priority : normalizeTodoPriority(patch.priority),
+                recurrence: patch.recurrence === undefined ? todo.recurrence : normalizeTodoRecurrence(patch.recurrence),
+                repeatColor: patch.repeatColor === undefined ? todo.repeatColor : normalizeTodoRepeatColor(patch.repeatColor),
+                completed: nextCompleted,
+                completedAt: nextCompletedAt,
+                updatedAt
+              };
+            }),
+            currentUserId
+          ).todos
+        }));
+
+        return { ok: true };
+      },
+
+      toggleTodo: (todoId, forceCompleted) => {
+        const currentUserId = get().currentUserId;
+        if (!currentUserId) {
+          return { ok: false, reason: "로그인이 필요합니다." };
+        }
+
+        const target = get().personalTodos.find((todo) => todo.id === todoId);
+        if (!target) {
+          return { ok: false, reason: "할 일을 찾지 못했습니다." };
+        }
+        if (target.ownerId !== currentUserId) {
+          return { ok: false, reason: "본인 할 일만 수정할 수 있습니다." };
+        }
+
+        const nextCompleted = typeof forceCompleted === "boolean" ? forceCompleted : !target.completed;
+        const updatedAt = nowIso();
+
+        set((state) => ({
+          personalTodos: applyTodoLifecycle(
+            state.personalTodos.map((todo) =>
+              todo.id === todoId
+                ? {
+                    ...todo,
+                    completed: nextCompleted,
+                    completedAt: nextCompleted ? updatedAt : null,
+                    updatedAt
+                  }
+                : todo
+            ),
+            currentUserId
+          ).todos
+        }));
+
+        return { ok: true };
+      },
+
+      removeTodo: (todoId) => {
+        const currentUserId = get().currentUserId;
+        if (!currentUserId) {
+          return { ok: false, reason: "로그인이 필요합니다." };
+        }
+
+        const target = get().personalTodos.find((todo) => todo.id === todoId);
+        if (!target) {
+          return { ok: false, reason: "할 일을 찾지 못했습니다." };
+        }
+        if (target.ownerId !== currentUserId) {
+          return { ok: false, reason: "본인 할 일만 삭제할 수 있습니다." };
+        }
+
+        set((state) => ({
+          personalTodos: state.personalTodos.filter((todo) => todo.id !== todoId)
+        }));
+
+        return { ok: true };
+      },
+
+      cleanupTodos: () => {
+        const currentUserId = get().currentUserId;
+        if (!currentUserId) {
+          return { removed: 0, reactivated: 0 };
+        }
+
+        const lifecycle = applyTodoLifecycle(get().personalTodos, currentUserId);
+        if (lifecycle.removed > 0 || lifecycle.reactivated > 0) {
+          set({ personalTodos: lifecycle.todos });
+        }
+
+        return { removed: lifecycle.removed, reactivated: lifecycle.reactivated };
       },
 
       addTask: (input) => {
@@ -604,6 +919,7 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
         const currentUserId = get().currentUserId;
         set((state) => ({
           sessionCheckedAt: nowIso(),
+          personalTodos: currentUserId ? applyTodoLifecycle(state.personalTodos, currentUserId).todos : state.personalTodos,
           connectedUserIds:
             currentUserId && !state.connectedUserIds.includes(currentUserId)
               ? [...state.connectedUserIds, currentUserId]
@@ -618,6 +934,7 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
         users: state.users,
         projects: state.projects,
         permissions: state.permissions,
+        personalTodos: state.personalTodos,
         tasks: state.tasks,
         kanbanTasks: state.kanbanTasks,
         kanbanHistory: state.kanbanHistory,
@@ -661,4 +978,15 @@ export function getVisibleTasks({
   role: ReturnType<typeof resolveRole>;
 }) {
   return tasks.filter((task) => canSeeTask(user, task, role));
+}
+
+export function getVisiblePersonalTodos({
+  todos,
+  currentUserId
+}: {
+  todos: PersonalTodo[];
+  currentUserId: string | null;
+}) {
+  if (!currentUserId) return [];
+  return todos.filter((todo) => todo.ownerId === currentUserId);
 }

@@ -13,6 +13,11 @@ import { canRead, canSeeTask, canWrite } from "@/lib/permissions/roles";
 import { getCurrentUser, getEffectiveRoleForFeature, useVisualKanbanStore } from "@/lib/store";
 import type { Task, TaskStatus } from "@/lib/types";
 
+const neoCard =
+  "rounded-2xl border-2 border-zinc-900 bg-white shadow-[4px_4px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[4px_4px_0_0_rgb(0,0,0)]";
+const neoButton =
+  "border-2 border-zinc-900 shadow-[2px_2px_0_0_rgb(24,24,27)] transition hover:-translate-y-0.5 hover:shadow-none dark:border-zinc-100 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]";
+
 const statusLabel: Record<TaskStatus, string> = {
   backlog: "Backlog",
   in_progress: "In Progress",
@@ -151,7 +156,7 @@ export default function DashboardPage() {
 
   if (!currentUser) {
     return (
-      <Card className="p-8">
+      <Card className={`${neoCard} p-8`}>
         <CardTitle>세션 확인 중...</CardTitle>
         <CardDescription className="mt-2">로그인 사용자 정보를 불러오고 있습니다.</CardDescription>
       </Card>
@@ -160,7 +165,7 @@ export default function DashboardPage() {
 
   if (!project) {
     return (
-      <Card className="p-8">
+      <Card className={`${neoCard} p-8`}>
         <CardTitle>프로젝트가 없습니다</CardTitle>
         <CardDescription className="mt-2">프로젝트를 연결하면 대시보드가 활성화됩니다.</CardDescription>
       </Card>
@@ -184,7 +189,7 @@ export default function DashboardPage() {
         role={role.toUpperCase()}
         actions={
           <div className="flex items-center gap-2">
-            <Button variant="secondary" onClick={() => router.push(`/app/projects/${project.id}/gantt`)}>
+            <Button className={neoButton} variant="secondary" onClick={() => router.push(`/app/projects/${project.id}/gantt`)}>
               간트차트 편집
             </Button>
           </div>
@@ -192,13 +197,15 @@ export default function DashboardPage() {
       />
 
       {feedback ? (
-        <Card className={feedback.tone === "success" ? "border-emerald-200 bg-emerald-50/70" : "border-rose-200 bg-rose-50/70"}>
+        <Card
+          className={`${neoCard} ${feedback.tone === "success" ? "border-emerald-700 bg-emerald-100 dark:border-emerald-400 dark:bg-emerald-950/50" : "border-rose-700 bg-rose-100 dark:border-rose-400 dark:bg-rose-950/50"}`}
+        >
           <CardDescription className={feedback.tone === "success" ? "text-emerald-700" : "text-rose-700"}>{feedback.message}</CardDescription>
         </Card>
       ) : null}
 
       <section className="grid gap-4 xl:grid-cols-2">
-        <Card>
+        <Card className={neoCard}>
           <div className="mb-3 flex items-center justify-between">
             <div>
               <CardTitle>내 To do</CardTitle>
@@ -216,11 +223,11 @@ export default function DashboardPage() {
                 return (
                   <label
                     key={task.id}
-                    className="flex items-start gap-3 rounded-lg border border-zinc-200 p-3 transition hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800/40"
+                    className="flex items-start gap-3 rounded-xl border-2 border-zinc-900 bg-zinc-100 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] transition hover:-translate-y-0.5 hover:shadow-none dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
                   >
                     <input
                       type="checkbox"
-                      className="mt-0.5 h-4 w-4 rounded border-zinc-300"
+                      className="mt-0.5 h-4 w-4 rounded border-2 border-zinc-900"
                       checked={checked}
                       onChange={(event) => onToggleTodo(task, event.target.checked)}
                       disabled={!writable}
@@ -239,7 +246,7 @@ export default function DashboardPage() {
           )}
         </Card>
 
-        <Card>
+        <Card className={neoCard}>
           <div className="mb-3 flex items-center justify-between">
             <div>
               <CardTitle>내 Task 요약</CardTitle>
@@ -249,37 +256,37 @@ export default function DashboardPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+            <div className="rounded-xl border-2 border-zinc-900 bg-zinc-100 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
               <p className="text-xs text-zinc-500">전체</p>
               <p className="text-xl font-semibold">{taskSummary.total}</p>
             </div>
-            <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+            <div className="rounded-xl border-2 border-zinc-900 bg-zinc-100 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
               <p className="text-xs text-zinc-500">완료율</p>
               <p className="text-xl font-semibold">{taskSummary.completionRate}%</p>
             </div>
-            <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+            <div className="rounded-xl border-2 border-zinc-900 bg-zinc-100 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
               <p className="text-xs text-zinc-500">In Progress</p>
               <p className="text-xl font-semibold">{taskSummary.inProgress}</p>
             </div>
-            <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+            <div className="rounded-xl border-2 border-zinc-900 bg-zinc-100 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
               <p className="text-xs text-zinc-500">긴급(High)</p>
               <p className="text-xl font-semibold">{taskSummary.highPriority}</p>
             </div>
           </div>
 
-          <div className="mt-3 rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+          <div className="mt-3 rounded-xl border-2 border-zinc-900 bg-zinc-50 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/50 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
             <div className="mb-1 flex items-center justify-between text-xs text-zinc-500">
               <span>Backlog {taskSummary.backlog}</span>
               <span>Done {taskSummary.done}</span>
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
+            <div className="h-2 overflow-hidden rounded-full border border-zinc-900 bg-zinc-200 dark:border-zinc-100 dark:bg-zinc-700">
               <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500" style={{ width: `${taskSummary.completionRate}%` }} />
             </div>
           </div>
         </Card>
       </section>
 
-      <Card>
+      <Card className={neoCard}>
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <CardTitle>내 프로젝트 간트차트</CardTitle>
@@ -304,7 +311,7 @@ export default function DashboardPage() {
               return (
                 <div
                   key={task.id}
-                  className="group rounded-lg border border-zinc-200 p-3 transition hover:border-sky-300 hover:bg-sky-50/40 dark:border-zinc-700 dark:hover:border-sky-700 dark:hover:bg-sky-950/20"
+                  className="group rounded-xl border-2 border-zinc-900 bg-zinc-100 p-3 shadow-[3px_3px_0_0_rgb(24,24,27)] transition hover:-translate-y-0.5 hover:shadow-none dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[3px_3px_0_0_rgb(0,0,0)]"
                   onDoubleClick={() => router.push(`/app/projects/${project.id}/gantt`)}
                 >
                   <div className="mb-2 flex items-center justify-between gap-2">
@@ -318,13 +325,13 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="relative">
-                    <div className="h-3 rounded-full bg-zinc-200 dark:bg-zinc-700" />
+                    <div className="h-3 rounded-full border border-zinc-900 bg-zinc-200 dark:border-zinc-100 dark:bg-zinc-700" />
                     <div
                       className={`absolute top-0 h-3 rounded-full bg-gradient-to-r ${statusTone[task.status].bar}`}
                       style={{ left: `${left}%`, width: `${Math.max(width, 6)}%` }}
                     />
 
-                    <div className="pointer-events-none absolute left-2 top-[-44px] z-10 rounded-md border border-zinc-200 bg-white/95 px-2 py-1 text-[11px] text-zinc-700 opacity-0 shadow-sm transition group-hover:opacity-100 dark:border-zinc-700 dark:bg-zinc-900/95 dark:text-zinc-200">
+                    <div className="pointer-events-none absolute left-2 top-[-44px] z-10 rounded-md border-2 border-zinc-900 bg-white px-2 py-1 text-[11px] text-zinc-700 opacity-0 shadow-[2px_2px_0_0_rgb(24,24,27)] transition group-hover:opacity-100 dark:border-zinc-100 dark:bg-zinc-900 dark:text-zinc-200 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
                       담당: {currentUser.displayName} · 마감: {formatShortDate(task.dueDate)}
                     </div>
                   </div>
@@ -341,7 +348,7 @@ export default function DashboardPage() {
       </Card>
 
       {!writable ? (
-        <Card className="border-amber-200 bg-amber-50/70 dark:border-amber-900 dark:bg-amber-950/20">
+        <Card className={`${neoCard} border-amber-700 bg-amber-100 dark:border-amber-400 dark:bg-amber-950/40`}>
           <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300">
             <CheckSquare2 className="h-4 w-4" />
             <p className="text-sm">현재 권한은 읽기 전용입니다. 체크/상태 변경은 Editor 이상에서 가능합니다.</p>

@@ -13,6 +13,11 @@ import { getCurrentUser, getEffectiveRoleForFeature, useVisualKanbanStore } from
 import type { TaskPriority, TaskStatus } from "@/lib/types";
 import { useShallow } from "zustand/react/shallow";
 
+const neoCard =
+  "rounded-2xl border-2 border-zinc-900 bg-white shadow-[4px_4px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[4px_4px_0_0_rgb(0,0,0)]";
+const neoButton =
+  "border-2 border-zinc-900 shadow-[2px_2px_0_0_rgb(24,24,27)] transition hover:-translate-y-0.5 hover:shadow-none dark:border-zinc-100 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]";
+
 const statusMeta: Record<TaskStatus, { label: string; variant: "warning" | "info" | "success" }> = {
   backlog: { label: "Backlog", variant: "warning" },
   in_progress: { label: "In Progress", variant: "info" },
@@ -88,7 +93,7 @@ export default function TaskDetailPage() {
 
   if (!project) {
     return (
-      <Card>
+      <Card className={neoCard}>
         <CardTitle>프로젝트를 찾을 수 없습니다.</CardTitle>
         <CardDescription className="mt-1">잘못된 프로젝트 ID입니다: {projectId}</CardDescription>
       </Card>
@@ -97,7 +102,7 @@ export default function TaskDetailPage() {
 
   if (!task) {
     return (
-      <Card>
+      <Card className={neoCard}>
         <CardTitle>태스크를 찾을 수 없습니다.</CardTitle>
         <CardDescription className="mt-1">잘못된 태스크 ID입니다: {taskId}</CardDescription>
       </Card>
@@ -147,7 +152,7 @@ export default function TaskDetailPage() {
       />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <Card className="space-y-4">
+        <Card className={`${neoCard} space-y-4`}>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={statusMeta[task.status].variant}>{statusMeta[task.status].label}</Badge>
             <Badge variant={priorityMeta[task.priority].variant}>{priorityMeta[task.priority].label}</Badge>
@@ -162,19 +167,19 @@ export default function TaskDetailPage() {
           </div>
 
           <div className="grid gap-2 text-sm md:grid-cols-2">
-            <div className="rounded-lg border border-zinc-200/80 p-3 dark:border-zinc-700/80">
+            <div className="rounded-xl border-2 border-zinc-900 bg-zinc-50 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
               <p className="text-xs text-zinc-500">Assignee</p>
               <p className="mt-1 font-medium">{assignee?.displayName ?? task.assigneeId}</p>
             </div>
-            <div className="rounded-lg border border-zinc-200/80 p-3 dark:border-zinc-700/80">
+            <div className="rounded-xl border-2 border-zinc-900 bg-zinc-50 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
               <p className="text-xs text-zinc-500">Reporter</p>
               <p className="mt-1 font-medium">{reporter?.displayName ?? task.reporterId}</p>
             </div>
-            <div className="rounded-lg border border-zinc-200/80 p-3 dark:border-zinc-700/80">
+            <div className="rounded-xl border-2 border-zinc-900 bg-zinc-50 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
               <p className="text-xs text-zinc-500">Owner</p>
               <p className="mt-1 font-medium">{owner?.displayName ?? task.ownerId}</p>
             </div>
-            <div className="rounded-lg border border-zinc-200/80 p-3 dark:border-zinc-700/80">
+            <div className="rounded-xl border-2 border-zinc-900 bg-zinc-50 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
               <p className="text-xs text-zinc-500">Due Date</p>
               <p className="mt-1 font-medium">{formatDateTime(task.dueDate)}</p>
             </div>
@@ -186,6 +191,7 @@ export default function TaskDetailPage() {
               {(Object.keys(statusMeta) as TaskStatus[]).map((status) => (
                 <Button
                   key={status}
+                  className={neoButton}
                   size="sm"
                   variant={status === task.status ? "default" : "secondary"}
                   disabled={!canWrite(taskboardRole)}
@@ -201,7 +207,7 @@ export default function TaskDetailPage() {
           </div>
         </Card>
 
-        <Card className="space-y-4">
+        <Card className={`${neoCard} space-y-4`}>
           <div>
             <CardTitle>Comments</CardTitle>
             <CardDescription className="mt-1">{taskComments.length}개의 댓글</CardDescription>
@@ -213,18 +219,25 @@ export default function TaskDetailPage() {
               onChange={(event) => setCommentBody(event.target.value)}
               placeholder="코멘트를 입력하세요..."
               rows={4}
-              className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:focus:border-zinc-500"
+              className="w-full rounded-md border-2 border-zinc-900 bg-white px-3 py-2 text-sm outline-none shadow-[2px_2px_0_0_rgb(24,24,27)] transition dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
             />
-            <Button type="submit" size="sm" className="w-full">
+            <Button type="submit" size="sm" className={`w-full ${neoButton}`}>
               댓글 등록
             </Button>
           </form>
 
-          {feedback ? <p className="rounded-md bg-zinc-100 px-3 py-2 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">{feedback}</p> : null}
+          {feedback ? (
+            <p className="rounded-md border-2 border-zinc-900 bg-zinc-100 px-3 py-2 text-xs text-zinc-700 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800 dark:text-zinc-200 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
+              {feedback}
+            </p>
+          ) : null}
 
           <div className="max-h-[460px] space-y-2 overflow-auto pr-1">
             {taskComments.map((comment) => (
-              <div key={comment.id} className="rounded-md border border-zinc-200/80 p-3 dark:border-zinc-700/80">
+              <div
+                key={comment.id}
+                className="rounded-lg border-2 border-zinc-900 bg-zinc-50 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
+              >
                 <div className="mb-1 flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
                   <span>{userMap.get(comment.authorId)?.displayName ?? comment.authorId}</span>
                   <span>{formatDateTime(comment.createdAt)}</span>
