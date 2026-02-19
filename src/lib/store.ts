@@ -72,17 +72,17 @@ const WORKSPACE_STYLE_PRESETS = new Set<WorkspaceStylePreset>([
   "neo-classic",
   "neo-vivid",
   "modern-light",
-  "modern-dark",
-  "warm-brown"
+  "modern-brown"
 ]);
 
 function normalizeWorkspaceLanguage(language: WorkspaceLanguage | null | undefined): WorkspaceLanguage {
   return language === "en" ? "en" : "ko";
 }
 
-function normalizeWorkspaceStyle(style: WorkspaceStyle | null | undefined): WorkspaceStylePreset {
-  return style && WORKSPACE_STYLE_PRESETS.has(style as WorkspaceStylePreset)
-    ? (style as WorkspaceStylePreset)
+function normalizeWorkspaceStyle(style: WorkspaceStyle | string | null | undefined): WorkspaceStylePreset {
+  const legacyAlias = typeof style === "string" ? (style === "warm-brown" ? "modern-brown" : style === "modern-dark" ? "modern-light" : style) : null;
+  return legacyAlias && WORKSPACE_STYLE_PRESETS.has(legacyAlias as WorkspaceStylePreset)
+    ? (legacyAlias as WorkspaceStylePreset)
     : (DEFAULT_WORKSPACE_STYLE as WorkspaceStylePreset);
 }
 

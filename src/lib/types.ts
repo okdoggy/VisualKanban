@@ -18,7 +18,7 @@ export type TodoPriority = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 export type TodoRecurrenceType = "none" | "daily" | "weekly";
 export type TodoWeekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 export type WorkspaceLanguage = "ko" | "en";
-export type WorkspaceStylePreset = "neo-classic" | "neo-vivid" | "modern-light" | "modern-dark" | "warm-brown";
+export type WorkspaceStylePreset = "neo-classic" | "neo-vivid" | "modern-light" | "modern-brown";
 export type WorkspaceStyle = WorkspaceStylePreset;
 
 export interface AccountWorkspacePreference {

@@ -20,7 +20,7 @@ const nav = [
   { projectRouteKey: "gantt", labelKey: "gantt", icon: Waypoints }
 ] as const;
 
-const styleOptions: WorkspaceStyle[] = ["neo-classic", "neo-vivid", "modern-light", "modern-dark", "warm-brown"];
+const styleOptions: WorkspaceStyle[] = ["neo-classic", "neo-vivid", "modern-light", "modern-brown"];
 const workspaceCollapsedStorageKey = "visual-kanban-workspace-collapsed";
 
 type ShellStyleClasses = {
@@ -73,48 +73,34 @@ const shellStyleClasses: Record<WorkspaceStyle, ShellStyleClasses> = {
     mainContent: "border-zinc-900 bg-cyan-50 shadow-[8px_8px_0_0_#18181b] dark:border-zinc-100 dark:bg-zinc-950 dark:shadow-[8px_8px_0_0_#f4f4f5]"
   },
   "modern-light": {
-    page: "bg-zinc-100",
+    page: "bg-zinc-50",
     sidebar:
-      "rounded-2xl border border-zinc-200 bg-white shadow-[0_20px_48px_-32px_rgba(15,23,42,0.75)] [&_p]:text-zinc-500 [&_h2]:text-zinc-900 [&_label]:text-zinc-600",
+      "rounded-2xl border border-zinc-200 bg-white shadow-sm [&_p]:text-zinc-500 [&_h2]:text-zinc-900 [&_h2]:font-semibold [&_h2]:normal-case [&_h2]:tracking-tight [&_label]:text-zinc-600 [&_label]:font-medium [&_label]:normal-case [&_label]:tracking-normal",
     header:
-      "rounded-2xl border border-zinc-200 bg-white shadow-[0_16px_38px_-28px_rgba(15,23,42,0.7)] [&_p]:text-zinc-500 [&_h1]:text-zinc-900",
-    navActive: "border-zinc-900 bg-zinc-900 text-zinc-50 shadow-sm",
-    navInactive: "border-zinc-200 bg-white text-zinc-700 shadow-sm hover:bg-zinc-100 hover:shadow-md",
-    settingsPanel: "rounded-xl border-zinc-200 bg-zinc-50 shadow-sm",
-    settingsSelect: "rounded-md border-zinc-300 bg-white text-zinc-800",
-    topBarIconButton: "rounded-lg border-zinc-200 bg-white text-zinc-700 shadow-sm hover:bg-zinc-100 hover:translate-x-0 hover:translate-y-0 hover:shadow-md",
-    connectedUserChip: "rounded-full border-zinc-200 bg-zinc-100 text-zinc-700 shadow-sm",
-    searchDialog: "rounded-2xl border border-zinc-200 bg-white shadow-[0_28px_70px_-36px_rgba(15,23,42,0.8)]",
-    mainContent: "rounded-2xl border border-zinc-200 bg-white shadow-[0_22px_54px_-34px_rgba(15,23,42,0.72)]"
+      "rounded-2xl border border-zinc-200 bg-white shadow-sm [&_p]:text-zinc-500 [&_h1]:text-zinc-900 [&_h1]:font-semibold [&_h1]:normal-case [&_h1]:tracking-tight",
+    navActive: "rounded-lg border-zinc-900 bg-zinc-900 text-zinc-50 shadow-none font-medium normal-case tracking-normal",
+    navInactive: "rounded-lg border-zinc-200 bg-white text-zinc-700 shadow-none font-medium normal-case tracking-normal hover:bg-zinc-100 hover:shadow-none",
+    settingsPanel: "rounded-xl border-zinc-200 bg-zinc-50 shadow-none",
+    settingsSelect: "rounded-lg border-zinc-300 bg-white text-zinc-800",
+    topBarIconButton: "rounded-lg border-zinc-200 bg-white text-zinc-700 shadow-none hover:bg-zinc-100 hover:translate-x-0 hover:translate-y-0 hover:shadow-none",
+    connectedUserChip: "rounded-full border-zinc-200 bg-zinc-100 text-zinc-700 shadow-none",
+    searchDialog: "rounded-2xl border border-zinc-200 bg-white shadow-sm",
+    mainContent: "rounded-2xl border border-zinc-200 bg-white shadow-sm"
   },
-  "modern-dark": {
-    page: "bg-zinc-950",
+  "modern-brown": {
+    page: "bg-[#efe5d5]",
     sidebar:
-      "rounded-2xl border border-zinc-700 bg-zinc-900 shadow-[0_20px_48px_-30px_rgba(0,0,0,0.95)] [&_p]:text-zinc-400 [&_h2]:text-zinc-50 [&_label]:text-zinc-300",
+      "rounded-2xl border border-amber-300 bg-[#f7efdf] shadow-none [&_p]:text-amber-700 [&_h2]:text-amber-950 [&_h2]:font-semibold [&_h2]:normal-case [&_h2]:tracking-tight [&_label]:text-amber-800 [&_label]:font-medium [&_label]:normal-case [&_label]:tracking-normal",
     header:
-      "rounded-2xl border border-zinc-700 bg-zinc-900 shadow-[0_16px_38px_-24px_rgba(0,0,0,0.95)] [&_p]:text-zinc-400 [&_h1]:text-zinc-50",
-    navActive: "border-zinc-100 bg-zinc-50 text-zinc-950 shadow-sm",
-    navInactive: "border-zinc-700 bg-zinc-900 text-zinc-200 shadow-sm hover:bg-zinc-800 hover:shadow-md",
-    settingsPanel: "rounded-xl border-zinc-700 bg-zinc-900 shadow-sm [&_p]:text-zinc-400 [&_label]:text-zinc-300",
-    settingsSelect: "rounded-md border-zinc-600 bg-zinc-800 text-zinc-100",
-    topBarIconButton: "rounded-lg border-zinc-700 bg-zinc-900 text-zinc-100 shadow-sm hover:bg-zinc-800 hover:translate-x-0 hover:translate-y-0 hover:shadow-md",
-    connectedUserChip: "rounded-full border-zinc-600 bg-zinc-800 text-zinc-100 shadow-sm",
-    searchDialog: "rounded-2xl border border-zinc-700 bg-zinc-900 shadow-[0_30px_72px_-34px_rgba(0,0,0,0.98)]",
-    mainContent: "rounded-2xl border border-zinc-700 bg-zinc-900 shadow-[0_24px_58px_-32px_rgba(0,0,0,0.95)]"
-  },
-  "warm-brown": {
-    page: "bg-amber-50",
-    sidebar: "border-amber-900 bg-amber-200 shadow-[8px_8px_0_0_#78350f] [&_p]:text-amber-700 [&_h2]:text-amber-950 [&_label]:text-amber-800",
-    header: "border-amber-900 bg-amber-100 shadow-[8px_8px_0_0_#78350f] [&_p]:text-amber-700 [&_h1]:text-amber-950",
-    navActive: "border-amber-900 bg-amber-700 text-amber-50 shadow-[4px_4px_0_0_#78350f]",
-    navInactive: "border-amber-800/80 bg-amber-50 text-amber-900 hover:-translate-x-[1px] hover:-translate-y-[1px] hover:shadow-[4px_4px_0_0_#78350f]",
-    settingsPanel: "border-amber-900 bg-amber-100 shadow-[5px_5px_0_0_#78350f]",
-    settingsSelect: "border-amber-900 bg-amber-50 text-amber-950",
-    topBarIconButton:
-      "border-amber-900 bg-amber-100 text-amber-950 shadow-[3px_3px_0_0_#78350f] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_0_#78350f]",
-    connectedUserChip: "border-amber-900 bg-amber-200 text-amber-950 shadow-[2px_2px_0_0_#78350f]",
-    searchDialog: "border-amber-900 bg-amber-50 shadow-[10px_10px_0_0_#78350f]",
-    mainContent: "border-amber-900 bg-amber-50 shadow-[8px_8px_0_0_#78350f]"
+      "rounded-2xl border border-amber-300 bg-[#fbf4e5] shadow-none [&_p]:text-amber-700 [&_h1]:text-amber-950 [&_h1]:font-semibold [&_h1]:normal-case [&_h1]:tracking-tight",
+    navActive: "rounded-lg border-amber-500 bg-amber-200 text-amber-950 shadow-none font-medium normal-case tracking-normal",
+    navInactive: "rounded-lg border-amber-300 bg-[#fffaf0] text-amber-900 shadow-none font-medium normal-case tracking-normal hover:bg-amber-100 hover:shadow-none",
+    settingsPanel: "rounded-xl border-amber-300 bg-[#f8efdf] shadow-none [&_p]:text-amber-700 [&_label]:text-amber-800",
+    settingsSelect: "rounded-lg border-amber-300 bg-[#fffaf0] text-amber-900",
+    topBarIconButton: "rounded-lg border-amber-300 bg-[#fffaf0] text-amber-900 shadow-none hover:bg-amber-100 hover:translate-x-0 hover:translate-y-0 hover:shadow-none",
+    connectedUserChip: "rounded-full border-amber-300 bg-amber-100 text-amber-900 shadow-none",
+    searchDialog: "rounded-2xl border border-amber-300 bg-[#fbf4e5] shadow-none",
+    mainContent: "rounded-2xl border border-amber-300 bg-[#fffaf0] shadow-none"
   }
 };
 
@@ -201,8 +187,7 @@ const shellCopyByLanguage: Record<WorkspaceLanguage, ShellCopy> = {
       "neo-classic": "네오 클래식",
       "neo-vivid": "네오 비비드",
       "modern-light": "모던 라이트",
-      "modern-dark": "모던 다크",
-      "warm-brown": "웜 브라운"
+      "modern-brown": "모던 브라운"
     },
     searchTitle: "글로벌 검색",
     searchPlaceholder: "검색어를 입력하세요 (⌘/Ctrl + K)",
@@ -257,8 +242,7 @@ const shellCopyByLanguage: Record<WorkspaceLanguage, ShellCopy> = {
       "neo-classic": "Neo Classic",
       "neo-vivid": "Neo Vivid",
       "modern-light": "Modern Light",
-      "modern-dark": "Modern Dark",
-      "warm-brown": "Warm Brown"
+      "modern-brown": "Modern Brown"
     },
     searchTitle: "Global search",
     searchPlaceholder: "Type to search (⌘/Ctrl + K)",
@@ -367,6 +351,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const shellCopy = useMemo(() => shellCopyByLanguage[workspaceLanguage], [workspaceLanguage]);
   const activeStyle = useMemo(() => shellStyleClasses[workspaceStyle] ?? shellStyleClasses["neo-classic"], [workspaceStyle]);
+  const isModernWorkspace = workspaceStyle === "modern-light" || workspaceStyle === "modern-brown";
   const currentUser = useMemo(() => getCurrentUser(users, currentUserId), [users, currentUserId]);
   const canOpenUserManagement = Boolean(currentUser);
   const currentProjectId = useMemo(() => getProjectIdFromPathname(pathname), [pathname]);
@@ -581,7 +566,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const topBarIconButtonClass = `h-9 w-9 rounded-none border-2 transition-transform ${activeStyle.topBarIconButton}`;
 
   return (
-    <div className={`min-h-screen p-3 sm:p-4 ${activeStyle.page}`}>
+    <div
+      className={`min-h-screen p-3 sm:p-4 workspace-style-${workspaceStyle} ${isModernWorkspace ? "workspace-modern" : ""} ${activeStyle.page}`}
+      data-workspace-style={workspaceStyle}
+      data-workspace-modern={isModernWorkspace ? "true" : undefined}
+    >
       <div className="flex min-h-[calc(100vh-1.5rem)] gap-4">
         {!isWorkspaceCollapsed ? (
           <aside

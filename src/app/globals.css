@@ -125,3 +125,196 @@ table:not([data-unstyled]) td:last-child {
   background-image: radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.25) 1px, transparent 0);
   background-size: 20px 20px;
 }
+
+/* Modern workspace-only polish (keeps neo styles unchanged outside modern hooks) */
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown) {
+  --modern-font-stack:
+    Inter,
+    "SF Pro Text",
+    "Segoe UI",
+    Roboto,
+    "Noto Sans",
+    "Apple SD Gothic Neo",
+    "Malgun Gothic",
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
+  --modern-surface: #ffffff;
+  --modern-surface-muted: #f8fafc;
+  --modern-border: rgb(148 163 184 / 0.34);
+  --modern-border-strong: rgb(100 116 139 / 0.46);
+  --modern-fg: #0f172a;
+  --modern-fg-muted: #334155;
+  --modern-focus: rgb(56 189 248 / 0.45);
+  --modern-shadow: 0 10px 24px -18px rgb(15 23 42 / 0.42);
+  --modern-shadow-soft: 0 6px 16px -14px rgb(15 23 42 / 0.32);
+  font-family: var(--modern-font-stack);
+  letter-spacing: 0.008em;
+  text-rendering: optimizeLegibility;
+  color-scheme: light;
+}
+
+:where(.workspace-style-modern-brown) {
+  --modern-surface: #f8efdf;
+  --modern-surface-muted: #f2e5cf;
+  --modern-border: rgb(146 116 78 / 0.25);
+  --modern-border-strong: rgb(125 93 61 / 0.45);
+  --modern-fg: #3f2f1f;
+  --modern-fg-muted: #6f5a43;
+  --modern-focus: rgb(180 141 96 / 0.45);
+  --modern-shadow: 0 10px 22px -18px rgb(92 60 28 / 0.24);
+  --modern-shadow-soft: 0 6px 14px -12px rgb(92 60 28 / 0.18);
+  color-scheme: light;
+}
+
+:where(.workspace-style-modern-brown) {
+  background-image:
+    linear-gradient(rgba(120, 85, 46, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(120, 85, 46, 0.035) 1px, transparent 1px);
+  background-size: 100% 26px, 26px 100%;
+}
+
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown)
+  :is(h1, h2, h3, h4, h5, h6, label, th, .font-bold, .font-black) {
+  letter-spacing: 0.02em;
+}
+
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown) .font-black {
+  font-weight: 700;
+}
+
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown)
+  :is([class*="tracking-[0.25em]"], [class*="tracking-[0.22em]"], [class*="tracking-[0.2em]"], [class*="tracking-[0.18em]"], [class*="tracking-[0.16em]"], [class*="tracking-[0.12em]"], .tracking-wide) {
+  letter-spacing: 0.05em !important;
+}
+
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown)
+  :is(.neo-panel, .neo-inset, table:not([data-unstyled])) {
+  box-shadow: var(--modern-shadow-soft) !important;
+}
+
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown)
+  :is(.neo-panel, .neo-inset, table:not([data-unstyled])) {
+  border-width: 1px !important;
+  border-color: var(--modern-border-strong);
+  border-radius: 0.9rem;
+  background: var(--modern-surface);
+}
+
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown)
+  :is(button, [type="button"], [type="submit"], [type="reset"], [role="button"], .neo-pressable) {
+  border-radius: 0.75rem;
+  box-shadow: none;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown)
+  :is(button, [type="button"], [type="submit"], [type="reset"], [role="button"], .neo-pressable):is(:hover, :active),
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown)
+  :is([class*="hover:translate"], [class*="active:translate"]):is(:hover, :active) {
+  --tw-translate-x: 0 !important;
+  --tw-translate-y: 0 !important;
+  transform: none !important;
+}
+
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown)
+  :is(button, [type="button"], [type="submit"], [type="reset"], [role="button"], .neo-pressable):hover {
+  box-shadow: none !important;
+}
+
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown)
+  :is(button, [type="button"], [type="submit"], [type="reset"], [role="button"], .neo-pressable):active {
+  box-shadow: none !important;
+}
+
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown)
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="hidden"]):not([data-unstyled]),
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown)
+  select:not([data-unstyled]),
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown)
+  textarea:not([data-unstyled]) {
+  border: 1px solid var(--modern-border-strong);
+  border-radius: 0.75rem;
+  background: var(--modern-surface);
+  color: var(--modern-fg);
+  box-shadow: none;
+  font-family: var(--modern-font-stack);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+}
+
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown)
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="hidden"]):not([data-unstyled])::placeholder,
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown)
+  textarea:not([data-unstyled])::placeholder {
+  color: var(--modern-fg-muted);
+  opacity: 0.72;
+}
+
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown)
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="hidden"]):not([data-unstyled]):focus-visible,
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown)
+  select:not([data-unstyled]):focus-visible,
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown)
+  textarea:not([data-unstyled]):focus-visible {
+  outline: none;
+  border-color: var(--modern-focus);
+  box-shadow: 0 0 0 3px var(--modern-focus);
+}
+
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown)
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="hidden"]):not([data-unstyled]):disabled,
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown)
+  select:not([data-unstyled]):disabled,
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown)
+  textarea:not([data-unstyled]):disabled {
+  background: var(--modern-surface-muted);
+  color: var(--modern-fg-muted);
+  opacity: 0.65;
+  box-shadow: none;
+}
+
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown) table:not([data-unstyled]) {
+  border: 1px solid var(--modern-border-strong);
+  border-radius: 0.9rem;
+  background: var(--modern-surface);
+  box-shadow: var(--modern-shadow-soft);
+}
+
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown) table:not([data-unstyled]) th,
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown) table:not([data-unstyled]) td {
+  border-right: 1px solid var(--modern-border);
+  border-bottom: 1px solid var(--modern-border);
+  padding: 0.7rem 0.85rem;
+}
+
+:where(.workspace-modern, .workspace-style-modern-light, .workspace-style-modern-brown) table:not([data-unstyled]) th {
+  background: var(--modern-surface-muted);
+  color: var(--modern-fg);
+  font-weight: 600;
+  text-transform: none;
+}
+
+/* Keep modern-light / modern-brown away from neo-brutal hard borders & shadows */
+:where(.workspace-style-modern-light, .workspace-style-modern-brown)
+  :is([class*="border-zinc-900"], [class*="border-zinc-950"], [class*="border-zinc-100"], [class*="border-amber-900"]) {
+  border-color: var(--modern-border-strong) !important;
+}
+
+:where(.workspace-style-modern-light, .workspace-style-modern-brown)
+  :is([class*="border-4"], [class*="border-[3px]"], [class*="border-2"]) {
+  border-width: 1px !important;
+}
+
+:where(.workspace-style-modern-light, .workspace-style-modern-brown)
+  :is([class*="shadow-["], .shadow-sm, .shadow, .shadow-md, .shadow-lg, .shadow-xl) {
+  box-shadow: none !important;
+}
+
+:where(.workspace-style-modern-light, .workspace-style-modern-brown)
+  :is(button, [type="button"], [type="submit"], [type="reset"], [role="button"]) {
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-weight: 600;
+}
