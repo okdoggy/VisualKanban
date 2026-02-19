@@ -49,33 +49,6 @@ export const seedUsers: User[] = [
     password: "0000",
     mustChangePassword: true,
     baseRole: "admin"
-  },
-  {
-    id: "u-editor",
-    username: "editor",
-    displayName: "Editor Lee",
-    icon: "L",
-    password: "0000",
-    mustChangePassword: true,
-    baseRole: "editor"
-  },
-  {
-    id: "u-viewer",
-    username: "viewer",
-    displayName: "Viewer Park",
-    icon: "P",
-    password: "0000",
-    mustChangePassword: true,
-    baseRole: "viewer"
-  },
-  {
-    id: "u-me",
-    username: "me",
-    displayName: "My Account",
-    icon: "M",
-    password: "0000",
-    mustChangePassword: true,
-    baseRole: "editor"
   }
 ];
 
@@ -95,27 +68,6 @@ export const seedProjectMemberships: ProjectMembership[] = [
     userId: "u-admin",
     role: "owner",
     updatedAt: now
-  },
-  {
-    id: "member-proj-visual-u-me",
-    projectId: "proj-visual",
-    userId: "u-me",
-    role: "write",
-    updatedAt: now
-  },
-  {
-    id: "member-proj-visual-u-editor",
-    projectId: "proj-visual",
-    userId: "u-editor",
-    role: "write",
-    updatedAt: now
-  },
-  {
-    id: "member-proj-visual-u-viewer",
-    projectId: "proj-visual",
-    userId: "u-viewer",
-    role: "read",
-    updatedAt: now
   }
 ];
 
@@ -124,24 +76,8 @@ export const seedPermissions: PermissionAssignment[] = [
     id: "perm-1",
     projectId: "proj-visual",
     feature: "kanban",
-    userId: "u-editor",
-    role: "editor",
-    updatedAt: now
-  },
-  {
-    id: "perm-2",
-    projectId: "proj-visual",
-    feature: "kanban",
-    userId: "u-viewer",
-    role: "viewer",
-    updatedAt: now
-  },
-  {
-    id: "perm-3",
-    projectId: "proj-visual",
-    feature: "kanban",
-    userId: "u-me",
-    role: "private",
+    userId: "u-admin",
+    role: "admin",
     updatedAt: now
   }
 ];
@@ -149,7 +85,7 @@ export const seedPermissions: PermissionAssignment[] = [
 export const seedPersonalTodos: PersonalTodo[] = [
   {
     id: "todo-1",
-    ownerId: "u-me",
+    ownerId: "u-admin",
     title: "아침 스탠드업 준비",
     description: "어제/오늘/블로커 3줄로 정리",
     completed: false,
@@ -162,7 +98,7 @@ export const seedPersonalTodos: PersonalTodo[] = [
   },
   {
     id: "todo-2",
-    ownerId: "u-me",
+    ownerId: "u-admin",
     title: "주간 회고 정리",
     description: "매주 금요일 배운 점 3개 기록",
     completed: false,
@@ -175,7 +111,7 @@ export const seedPersonalTodos: PersonalTodo[] = [
   },
   {
     id: "todo-3",
-    ownerId: "u-editor",
+    ownerId: "u-admin",
     title: "개인 학습 일정 체크",
     description: "React 19 변경사항 요약 읽기",
     completed: true,
@@ -196,10 +132,10 @@ export const seedTasks: Task[] = [
     description: "첫 화면 정보 밀도 개선 및 액션 단축",
     status: "backlog",
     priority: "high",
-    assigneeId: "u-me",
-    participantIds: ["u-me", "u-editor"],
+    assigneeId: "u-admin",
+    participantIds: ["u-admin"],
     reporterId: "u-admin",
-    ownerId: "u-me",
+    ownerId: "u-admin",
     dueDate: addDays(week2, 4).toISOString(),
     startDate: week1.toISOString(),
     endDate: addDays(week2, 4).toISOString(),
@@ -215,10 +151,10 @@ export const seedTasks: Task[] = [
     description: "세로형 보드 + 상태별 색상 + 빠른 이동 액션",
     status: "in_progress",
     priority: "high",
-    assigneeId: "u-me",
-    participantIds: ["u-me", "u-admin"],
+    assigneeId: "u-admin",
+    participantIds: ["u-admin"],
     reporterId: "u-admin",
-    ownerId: "u-me",
+    ownerId: "u-admin",
     dueDate: addDays(week3, 2).toISOString(),
     startDate: week1.toISOString(),
     endDate: addDays(week3, 2).toISOString(),
@@ -234,10 +170,10 @@ export const seedTasks: Task[] = [
     description: "Private 역할 사용자의 비공개 데이터 보호 테스트",
     status: "done",
     priority: "medium",
-    assigneeId: "u-me",
-    participantIds: ["u-me"],
+    assigneeId: "u-admin",
+    participantIds: ["u-admin"],
     reporterId: "u-admin",
-    ownerId: "u-me",
+    ownerId: "u-admin",
     dueDate: addDays(week1, 4).toISOString(),
     startDate: week0.toISOString(),
     endDate: addDays(week1, 4).toISOString(),
@@ -253,10 +189,10 @@ export const seedTasks: Task[] = [
     description: "Row/Column 기반 주차 그리드, Zoom, 오늘 주차 점프",
     status: "in_progress",
     priority: "medium",
-    assigneeId: "u-me",
-    participantIds: ["u-me", "u-editor", "u-admin"],
+    assigneeId: "u-admin",
+    participantIds: ["u-admin"],
     reporterId: "u-admin",
-    ownerId: "u-me",
+    ownerId: "u-admin",
     dueDate: addDays(week4, 3).toISOString(),
     startDate: week2.toISOString(),
     endDate: addDays(week4, 3).toISOString(),
@@ -272,11 +208,11 @@ export const seedTasks: Task[] = [
     description: "부모 간트 태스크 하위 작업 - 시작/종료일 직접 조정",
     status: "in_progress",
     priority: "high",
-    assigneeId: "u-editor",
-    participantIds: ["u-editor", "u-me"],
+    assigneeId: "u-admin",
+    participantIds: ["u-admin"],
     parentTaskId: "task-4",
     reporterId: "u-admin",
-    ownerId: "u-me",
+    ownerId: "u-admin",
     dueDate: addDays(week3, 5).toISOString(),
     startDate: addDays(week2, 1).toISOString(),
     endDate: addDays(week3, 5).toISOString(),
@@ -292,11 +228,11 @@ export const seedTasks: Task[] = [
     description: "부모-자식 구조와 다중 참여자 표시 UI 연결",
     status: "backlog",
     priority: "medium",
-    assigneeId: "u-me",
-    participantIds: ["u-me", "u-admin", "u-editor"],
+    assigneeId: "u-admin",
+    participantIds: ["u-admin"],
     parentTaskId: "task-4",
     reporterId: "u-admin",
-    ownerId: "u-me",
+    ownerId: "u-admin",
     dueDate: addDays(week4, 1).toISOString(),
     startDate: addDays(week3, 0).toISOString(),
     endDate: addDays(week4, 1).toISOString(),
@@ -377,12 +313,12 @@ export const seedActivities: Activity[] = [
     id: "act-1",
     actorId: "u-admin",
     type: "permission_change",
-    message: "u-me 사용자에게 Kanban Private 권한 부여",
+    message: "Kanban 권한 정책 초기화",
     createdAt: now
   },
   {
     id: "act-2",
-    actorId: "u-editor",
+    actorId: "u-admin",
     type: "task_move",
     message: "Kanban 이동 UX 최적화 태스크를 In Progress로 변경",
     createdAt: now

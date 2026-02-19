@@ -385,6 +385,154 @@ function normalizeBaseRole(baseRole?: BaseRole): BaseRole {
   return "viewer";
 }
 
+function normalizeUserPart(part?: string) {
+  const normalized = part?.trim();
+  return normalized && normalized.length > 0 ? normalized : undefined;
+}
+
+const LEGACY_TEST_ACCOUNT_USERNAMES = new Set(["editor", "viewer", "me"]);
+
+function sanitizeLegacySeedAccounts(state: VisualKanbanState): VisualKanbanState {
+  const seedAdminUser = seedUsers.find((user) => user.username.trim().toLowerCase() === "admin");
+  let users = state.users.filter((user) => !LEGACY_TEST_ACCOUNT_USERNAMES.has(user.username.trim().toLowerCase()));
+
+  const hasAdminUser = users.some((user) => user.username.trim().toLowerCase() === "admin");
+  if (!hasAdminUser && seedAdminUser) {
+    users = [{ ...seedAdminUser }, ...users.filter((user) => user.id !== seedAdminUser.id)];
+  }
+
+  if (users.length === 0) {
+    return state;
+  }
+
+  users = users.map((user) => {
+    const normalizedPart = normalizeUserPart(user.part);
+    return normalizedPart === user.part ? user : { ...user, part: normalizedPart };
+  });
+
+  const validUserIds = new Set(users.map((user) => user.id));
+  const fallbackUserId = users.find((user) => user.username.trim().toLowerCase() === "admin")?.id ?? users[0]?.id;
+  if (!fallbackUserId) {
+    return {
+      ...state,
+      users
+    };
+  }
+
+  const normalizeUserId = (userId: string) => (validUserIds.has(userId) ? userId : fallbackUserId);
+  const normalizeParticipantIds = (participantIds: string[] | undefined, assigneeId: string) => {
+    const normalized = [...new Set((participantIds ?? []).map(normalizeUserId).filter((id) => validUserIds.has(id)))];
+    if (normalized.length > 0) {
+      return normalized;
+    }
+    return [assigneeId];
+  };
+  const normalizeTaskUsers = (task: Task): Task => {
+    const assigneeId = normalizeUserId(task.assigneeId);
+    const reporterId = normalizeUserId(task.reporterId);
+    const ownerId = normalizeUserId(task.ownerId);
+    const participantIds = normalizeParticipantIds(task.participantIds, assigneeId);
+
+    if (
+      assigneeId === task.assigneeId &&
+      reporterId === task.reporterId &&
+      ownerId === task.ownerId &&
+      participantIds.length === (task.participantIds?.length ?? 0) &&
+      participantIds.every((id, index) => id === (task.participantIds ?? [])[index])
+    ) {
+      return task;
+    }
+
+    return {
+      ...task,
+      assigneeId,
+      reporterId,
+      ownerId,
+      participantIds
+    };
+  };
+
+  const projects = state.projects.map((project) => {
+    const ownerId = normalizeUserId(project.ownerId);
+    return ownerId === project.ownerId ? project : { ...project, ownerId };
+  });
+  const projectIds = new Set(projects.map((project) => project.id));
+
+  const projectMemberships = state.projectMemberships
+    .filter((membership) => projectIds.has(membership.projectId) && validUserIds.has(membership.userId))
+    .map((membership) => ({
+      ...membership,
+      userId: normalizeUserId(membership.userId)
+    }));
+  const existingMembershipKeys = new Set(projectMemberships.map((membership) => `${membership.projectId}:${membership.userId}`));
+  const ownerMemberships = projects
+    .filter((project) => !existingMembershipKeys.has(`${project.id}:${project.ownerId}`))
+    .map((project) => ({
+      id: uid("project-member"),
+      projectId: project.id,
+      userId: project.ownerId,
+      role: "owner" as const,
+      updatedAt: nowIso()
+    }));
+
+  const tasks = state.tasks.filter((task) => projectIds.has(task.projectId)).map(normalizeTaskUsers);
+  const kanbanTasks = state.kanbanTasks.filter((task) => projectIds.has(task.projectId)).map(normalizeTaskUsers);
+  const knownTaskIds = new Set([...tasks.map((task) => task.id), ...kanbanTasks.map((task) => task.id)]);
+
+  return {
+    ...state,
+    users,
+    projects,
+    projectMemberships: [...ownerMemberships, ...projectMemberships],
+    permissions: state.permissions.filter((permission) => projectIds.has(permission.projectId) && validUserIds.has(permission.userId)),
+    personalTodos: state.personalTodos.map((todo) => ({
+      ...todo,
+      ownerId: normalizeUserId(todo.ownerId)
+    })),
+    tasks,
+    kanbanTasks,
+    kanbanHistory: state.kanbanHistory
+      .filter((item) => projectIds.has(item.projectId))
+      .map((item) => ({
+        ...item,
+        finalizedBy: normalizeUserId(item.finalizedBy),
+        task: normalizeTaskUsers(item.task)
+      })),
+    comments: state.comments
+      .filter((comment) => knownTaskIds.has(comment.taskId))
+      .map((comment) => ({
+        ...comment,
+        authorId: normalizeUserId(comment.authorId)
+      })),
+    whiteboardScenes: state.whiteboardScenes
+      .filter((scene) => projectIds.has(scene.projectId))
+      .map((scene) => ({
+        ...scene,
+        updatedBy: normalizeUserId(scene.updatedBy)
+      })),
+    activities: state.activities.map((activity) => ({
+      ...activity,
+      actorId: normalizeUserId(activity.actorId)
+    })),
+    currentUserId: state.currentUserId && validUserIds.has(state.currentUserId) ? state.currentUserId : null,
+    connectedUserIds: state.connectedUserIds.filter((id) => validUserIds.has(id)),
+    workspacePreferencesByAccountId: Object.fromEntries(
+      Object.entries(state.workspacePreferencesByAccountId)
+        .filter(([accountId]) => validUserIds.has(accountId))
+        .map(([accountId, preference]) => [
+          accountId,
+          {
+            language: normalizeWorkspaceLanguage(preference?.language),
+            style: normalizeWorkspaceStyle(preference?.style)
+          }
+        ])
+    ),
+    recentProjectIdByAccountId: Object.fromEntries(
+      Object.entries(state.recentProjectIdByAccountId).filter(([accountId, projectId]) => validUserIds.has(accountId) && projectIds.has(projectId))
+    )
+  };
+}
+
 function getCurrentUserFromState(state: Pick<VisualKanbanState, "users" | "currentUserId">) {
   return getCurrentUser(state.users, state.currentUserId);
 }
@@ -517,8 +665,12 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
         if (!currentUserId) {
           return { ok: false, reason: "세션이 없습니다." };
         }
-        if (nextPassword.trim().length < 8) {
-          return { ok: false, reason: "비밀번호는 8자 이상이어야 합니다." };
+        const normalizedPassword = nextPassword.trim();
+        if (!normalizedPassword) {
+          return { ok: false, reason: "비밀번호를 입력해 주세요." };
+        }
+        if (normalizedPassword === "0000") {
+          return { ok: false, reason: "초기 비밀번호(0000)는 사용할 수 없습니다." };
         }
 
         set((state) => ({
@@ -526,7 +678,7 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
             user.id === currentUserId
               ? {
                   ...user,
-                  password: nextPassword,
+                  password: normalizedPassword,
                   mustChangePassword: false
                 }
               : user
@@ -561,7 +713,7 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
         return { ok: true };
       },
 
-      createUser: ({ username, displayName, password, baseRole }) => {
+      createUser: ({ username, displayName, part, password, baseRole }) => {
         const state = get();
         const actor = getCurrentUserFromState(state);
         if (!actor || actor.baseRole !== "admin") {
@@ -570,6 +722,7 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
 
         const normalizedUsername = username.trim();
         const normalizedDisplayName = displayName.trim();
+        const normalizedPart = normalizeUserPart(part);
         const normalizedPassword = password.trim();
 
         if (!normalizedUsername) {
@@ -594,6 +747,7 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
               id: userId,
               username: normalizedUsername,
               displayName: normalizedDisplayName,
+              part: normalizedPart,
               password: normalizedPassword,
               mustChangePassword: true,
               baseRole: normalizeBaseRole(baseRole)
@@ -603,6 +757,52 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
         }));
 
         return { ok: true, userId };
+      },
+
+      registerUserFromLogin: ({ username, password, part }) => {
+        const normalizedUsername = username.trim();
+        const normalizedPart = normalizeUserPart(part);
+
+        if (!normalizedUsername) {
+          return { ok: false, reason: "계정을 입력해 주세요." };
+        }
+        if (password !== "0000") {
+          return { ok: false, reason: "신규 계정은 초기 비밀번호 0000으로만 생성할 수 있습니다." };
+        }
+        if (!normalizedPart) {
+          return { ok: false, reason: "파트를 입력해 주세요." };
+        }
+
+        const usernameTaken = get().users.some((user) => user.username.toLowerCase() === normalizedUsername.toLowerCase());
+        if (usernameTaken) {
+          return { ok: false, reason: "이미 존재하는 계정입니다." };
+        }
+
+        const userId = uid("user");
+        set((prevState) => ({
+          users: [
+            {
+              id: userId,
+              username: normalizedUsername,
+              displayName: normalizedUsername,
+              part: normalizedPart,
+              password: "0000",
+              mustChangePassword: true,
+              baseRole: "viewer"
+            },
+            ...prevState.users
+          ]
+        }));
+
+        const loginResult = get().login(normalizedUsername, password);
+        if (!loginResult.ok) {
+          set((state) => ({
+            users: state.users.filter((user) => user.id !== userId)
+          }));
+          return { ok: false, reason: loginResult.reason ?? "신규 계정 로그인에 실패했습니다." };
+        }
+
+        return loginResult;
       },
 
       addProject: (input) => {
@@ -1636,6 +1836,11 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
     {
       name: "visual-kanban-state",
       storage: persistStorage,
+      merge: (persistedState, currentState) =>
+        sanitizeLegacySeedAccounts({
+          ...currentState,
+          ...(persistedState as Partial<VisualKanbanState>)
+        } as VisualKanbanState),
       partialize: (state) => ({
         users: state.users,
         projects: state.projects,

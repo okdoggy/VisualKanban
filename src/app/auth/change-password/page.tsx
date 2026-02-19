@@ -78,7 +78,7 @@ export default function ChangePasswordPage() {
         <form onSubmit={onSubmit} className="mt-5 space-y-3">
           <Input
             type="password"
-            placeholder="새 비밀번호 (8자 이상)"
+            placeholder="새 비밀번호 (0000 제외)"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="h-11 rounded-none border-2 border-zinc-900 bg-white font-semibold text-zinc-900 placeholder:text-zinc-500 dark:border-zinc-100 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-400"
@@ -94,8 +94,7 @@ export default function ChangePasswordPage() {
           />
 
           <ul className="list-inside list-disc space-y-1 border-2 border-zinc-900 bg-white p-3 text-xs font-medium text-zinc-700 dark:border-zinc-100 dark:bg-zinc-950 dark:text-zinc-300">
-            <li>8자 이상 입력</li>
-            <li>초기 비밀번호(0000) 재사용 불가 권장</li>
+            <li>초기 비밀번호(0000) 사용 불가</li>
             <li>변경 후 Dashboard로 이동</li>
           </ul>
 

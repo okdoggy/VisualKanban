@@ -35,6 +35,7 @@ export interface User {
   id: string;
   username: string;
   displayName: string;
+  part?: string;
   icon?: string;
   password: string;
   mustChangePassword: boolean;
@@ -194,9 +195,11 @@ export interface VisualKanbanState {
   createUser: (input: {
     username: string;
     displayName: string;
+    part?: string;
     password: string;
     baseRole?: BaseRole;
   }) => { ok: boolean; reason?: string; userId?: string };
+  registerUserFromLogin: (input: { username: string; password: string; part: string }) => { ok: boolean; reason?: string };
   addProject: (input: Pick<Project, "name" | "description">) => { ok: boolean; reason?: string; projectId?: string };
   updateProject: (projectId: string, input: Partial<Pick<Project, "name" | "description">>) => { ok: boolean; reason?: string };
   setProjectMemberRole: (projectId: string, userId: string, role: ProjectMemberRole) => { ok: boolean; reason?: string };
