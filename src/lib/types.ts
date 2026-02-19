@@ -5,12 +5,11 @@ export type ProjectMemberRole = "owner" | "write" | "read";
 export type FeatureKey =
   | "project"
   | "kanban"
-  | "mindmap"
+  | "whiteboard"
   | "gantt"
   | "taskboard"
   | "todo"
-  | "search"
-  | "comments";
+  | "search";
 
 export type TaskStatus = "backlog" | "in_progress" | "done";
 export type TaskPriority = "low" | "medium" | "high";
@@ -127,24 +126,6 @@ export type AddTaskInput = Pick<Task, "projectId" | "title" | "description" | "p
     ownerId?: Task["ownerId"];
   };
 
-export interface Comment {
-  id: string;
-  taskId: string;
-  authorId: string;
-  body: string;
-  createdAt: string;
-}
-
-export interface MindmapNode {
-  id: string;
-  projectId: string;
-  label: string;
-  parentId?: string;
-  taskId?: string;
-  x: number;
-  y: number;
-}
-
 export interface WhiteboardSceneData {
   elements: unknown[];
   appState: Record<string, unknown> | null;
@@ -162,7 +143,7 @@ export interface WhiteboardScene {
 export interface Activity {
   id: string;
   actorId: string;
-  type: "login" | "task_move" | "comment_add" | "permission_change" | "task_create";
+  type: "login" | "task_move" | "permission_change" | "task_create";
   message: string;
   createdAt: string;
 }
@@ -176,8 +157,6 @@ export interface VisualKanbanState {
   tasks: Task[];
   kanbanTasks: Task[];
   kanbanHistory: KanbanHistoryItem[];
-  comments: Comment[];
-  mindmapNodes: MindmapNode[];
   whiteboardScenes: WhiteboardScene[];
   activities: Activity[];
   currentUserId: string | null;
@@ -221,7 +200,6 @@ export interface VisualKanbanState {
   moveTask: (taskId: string, nextStatus: TaskStatus) => { ok: boolean; reason?: string };
   updateTask: (taskId: string, patch: Partial<Task>) => void;
   removeTask: (taskId: string) => { ok: boolean; reason?: string; removedTaskIds?: string[] };
-  addComment: (taskId: string, body: string) => { ok: boolean; reason?: string };
 
   setPermission: (projectId: string, feature: FeatureKey, userId: string, role: AccessRole) => void;
   ensureSessionCheck: () => void;

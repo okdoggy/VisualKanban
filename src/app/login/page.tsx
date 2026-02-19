@@ -6,6 +6,7 @@ import { LockKeyhole, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { getKnownParts } from "@/lib/data-management";
 import { useVisualKanbanStore } from "@/lib/store";
 import { useShallow } from "zustand/react/shallow";
 
@@ -28,12 +29,7 @@ export default function LoginPage() {
     }))
   );
 
-  const knownParts = useMemo(
-    () =>
-      [...new Set(users.map((user) => user.part?.trim()).filter((part): part is string => Boolean(part)))]
-        .sort((left, right) => left.localeCompare(right)),
-    [users]
-  );
+  const knownParts = useMemo(() => getKnownParts(users), [users]);
 
   const handleSuccessRedirect = (reason?: string) => {
     if (reason === "MUST_CHANGE_PASSWORD") {

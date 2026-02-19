@@ -1,8 +1,6 @@
 import type {
   Activity,
-  Comment,
   KanbanHistoryItem,
-  MindmapNode,
   PermissionAssignment,
   PersonalTodo,
   ProjectMembership,
@@ -252,43 +250,6 @@ export const seedKanbanTasks: Task[] = seedTasks.map((task) => ({
 }));
 
 export const seedKanbanHistory: KanbanHistoryItem[] = [];
-
-export const seedComments: Comment[] = [
-  {
-    id: "comment-1",
-    taskId: "task-2",
-    authorId: "u-admin",
-    body: "Done 이동시 체크리스트 검증 모달을 넣어주세요.",
-    createdAt: now
-  }
-];
-
-export const seedMindmapNodes: MindmapNode[] = [
-  {
-    id: "node-root",
-    projectId: "proj-visual",
-    label: "VisualKanban",
-    x: 250,
-    y: 120
-  },
-  {
-    id: "node-auth",
-    projectId: "proj-visual",
-    label: "Auth",
-    parentId: "node-root",
-    x: 100,
-    y: 260
-  },
-  {
-    id: "node-kanban",
-    projectId: "proj-visual",
-    label: "Kanban",
-    parentId: "node-root",
-    x: 400,
-    y: 260,
-    taskId: "task-2"
-  }
-];
 
 export const seedWhiteboardScenes: WhiteboardScene[] = [
   {

@@ -70,7 +70,7 @@ export default function WhiteboardPage() {
       getEffectiveRoleForFeature({
         user: currentUser,
         projectId,
-        feature: "mindmap",
+        feature: "whiteboard",
         permissions,
         projectMemberships,
         projects
@@ -105,7 +105,7 @@ export default function WhiteboardPage() {
             getEffectiveRoleForFeature({
               user,
               projectId,
-              feature: "mindmap",
+              feature: "whiteboard",
               permissions,
               projectMemberships,
               projects

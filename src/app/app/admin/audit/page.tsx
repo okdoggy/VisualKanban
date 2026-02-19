@@ -18,7 +18,6 @@ const neoControl =
 const activityLabels: Record<Activity["type"], string> = {
   login: "Login",
   task_move: "Task Move",
-  comment_add: "Comment",
   permission_change: "Permission",
   task_create: "Task Create"
 };
@@ -28,7 +27,6 @@ type TypeFilter = "all" | Activity["type"];
 function activityBadge(type: Activity["type"]) {
   if (type === "permission_change") return "danger";
   if (type === "task_move") return "info";
-  if (type === "comment_add") return "warning";
   if (type === "task_create") return "success";
   return "neutral";
 }
@@ -68,7 +66,6 @@ export default function AdminAuditPage() {
         {
           login: 0,
           task_move: 0,
-          comment_add: 0,
           permission_change: 0,
           task_create: 0
         }

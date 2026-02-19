@@ -1,7 +1,7 @@
 import type { AccessRole, FeatureKey, PermissionAssignment, Project, ProjectMemberRole, ProjectMembership, Task, User } from "@/lib/types";
 
 export type EffectiveRole = AccessRole | "none";
-const WRITE_SENSITIVE_FEATURES = new Set<FeatureKey>(["kanban", "gantt", "mindmap"]);
+const WRITE_SENSITIVE_FEATURES = new Set<FeatureKey>(["kanban", "gantt", "whiteboard"]);
 
 const roleWeight: Record<AccessRole, number> = {
   private: 3,

@@ -109,7 +109,6 @@ type ShellTabLabels = {
   gantt: string;
   kanban: string;
   whiteboard: string;
-  mindmap: string;
   permissions: string;
   taskDetail: string;
   dashboard: string;
@@ -169,7 +168,6 @@ const shellCopyByLanguage: Record<WorkspaceLanguage, ShellCopy> = {
       gantt: "간트 차트",
       kanban: "칸반 보드",
       whiteboard: "화이트보드",
-      mindmap: "마인드맵",
       permissions: "권한 설정",
       taskDetail: "태스크 상세",
       dashboard: "대시보드",
@@ -224,7 +222,6 @@ const shellCopyByLanguage: Record<WorkspaceLanguage, ShellCopy> = {
       gantt: "Gantt chart",
       kanban: "Kanban board",
       whiteboard: "Whiteboard",
-      mindmap: "Mind map",
       permissions: "Permissions",
       taskDetail: "Task detail",
       dashboard: "Dashboard",
@@ -274,7 +271,6 @@ function getTabLabel(pathname: string, tabs: ShellTabLabels) {
   if (pathname.startsWith("/app/projects/") && pathname.includes("/gantt")) return tabs.gantt;
   if (pathname.startsWith("/app/projects/") && pathname.includes("/kanban")) return tabs.kanban;
   if (pathname.startsWith("/app/projects/") && pathname.includes("/whiteboard")) return tabs.whiteboard;
-  if (pathname.startsWith("/app/projects/") && pathname.includes("/mindmap")) return tabs.mindmap;
   if (pathname.startsWith("/app/projects/") && pathname.includes("/permissions")) return tabs.permissions;
   if (pathname.startsWith("/app/projects/") && pathname.includes("/tasks/")) return tabs.taskDetail;
   if (pathname === "/app/dashboard") return tabs.dashboard;

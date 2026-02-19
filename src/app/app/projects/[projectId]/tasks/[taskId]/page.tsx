@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { FormEvent, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { FeatureAccessDenied } from "@/components/app/feature-access";
 import { PageHeader } from "@/components/app/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -47,10 +47,9 @@ export default function TaskDetailPage() {
   const params = useParams<{ projectId: string; taskId: string }>();
   const projectId = readParam(params.projectId);
   const taskId = readParam(params.taskId);
-  const [commentBody, setCommentBody] = useState("");
   const [feedback, setFeedback] = useState("");
 
-  const { users, currentUserId, projects, projectMemberships, permissions, tasks, comments, moveTask, addComment } = useVisualKanbanStore(
+  const { users, currentUserId, projects, projectMemberships, permissions, tasks, moveTask } = useVisualKanbanStore(
     useShallow((state) => ({
       users: state.users,
       currentUserId: state.currentUserId,
@@ -58,9 +57,7 @@ export default function TaskDetailPage() {
       projectMemberships: state.projectMemberships,
       permissions: state.permissions,
       tasks: state.tasks,
-      comments: state.comments,
-      moveTask: state.moveTask,
-      addComment: state.addComment
+      moveTask: state.moveTask
     }))
   );
 
@@ -81,14 +78,6 @@ export default function TaskDetailPage() {
   );
 
   const task = useMemo(() => tasks.find((item) => item.id === taskId && item.projectId === projectId) ?? null, [projectId, taskId, tasks]);
-
-  const taskComments = useMemo(
-    () =>
-      comments
-        .filter((comment) => comment.taskId === taskId)
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-    [comments, taskId]
-  );
 
   const userMap = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
   const writable = canWrite(taskAccessRole);
@@ -133,21 +122,6 @@ export default function TaskDetailPage() {
     setFeedback("상태가 업데이트되었습니다.");
   };
 
-  const onSubmitComment = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!writable) {
-      setFeedback("현재 권한은 읽기 전용입니다. 댓글 등록은 Editor 이상에서 가능합니다.");
-      return;
-    }
-    const result = addComment(task.id, commentBody);
-    if (!result.ok) {
-      setFeedback(result.reason ?? "댓글 등록에 실패했습니다.");
-      return;
-    }
-    setCommentBody("");
-    setFeedback("댓글이 등록되었습니다.");
-  };
-
   return (
     <section className="space-y-4">
       <PageHeader
@@ -161,118 +135,67 @@ export default function TaskDetailPage() {
         }
       />
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <Card className={`${neoCard} space-y-4`}>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={statusMeta[task.status].variant}>{statusMeta[task.status].label}</Badge>
-            <Badge variant={priorityMeta[task.priority].variant}>{priorityMeta[task.priority].label}</Badge>
-            <Badge variant={task.visibility === "private" ? "warning" : "neutral"}>
-              {task.visibility === "private" ? "Private" : "Shared"}
-            </Badge>
+      <Card className={`${neoCard} space-y-4`}>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={statusMeta[task.status].variant}>{statusMeta[task.status].label}</Badge>
+          <Badge variant={priorityMeta[task.priority].variant}>{priorityMeta[task.priority].label}</Badge>
+          <Badge variant={task.visibility === "private" ? "warning" : "neutral"}>{task.visibility === "private" ? "Private" : "Shared"}</Badge>
+        </div>
+
+        <div>
+          <CardTitle>Summary</CardTitle>
+          <CardDescription className="mt-2 text-sm leading-6 text-zinc-700 dark:text-zinc-200">{task.description}</CardDescription>
+        </div>
+
+        <div className="grid gap-2 text-sm md:grid-cols-2">
+          <div className="rounded-xl border-2 border-zinc-900 bg-zinc-50 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
+            <p className="text-xs text-zinc-500">Assignee</p>
+            <p className="mt-1 font-medium">{assignee?.displayName ?? task.assigneeId}</p>
           </div>
-
-          <div>
-            <CardTitle>Summary</CardTitle>
-            <CardDescription className="mt-2 text-sm leading-6 text-zinc-700 dark:text-zinc-200">{task.description}</CardDescription>
+          <div className="rounded-xl border-2 border-zinc-900 bg-zinc-50 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
+            <p className="text-xs text-zinc-500">Reporter</p>
+            <p className="mt-1 font-medium">{reporter?.displayName ?? task.reporterId}</p>
           </div>
-
-          <div className="grid gap-2 text-sm md:grid-cols-2">
-            <div className="rounded-xl border-2 border-zinc-900 bg-zinc-50 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
-              <p className="text-xs text-zinc-500">Assignee</p>
-              <p className="mt-1 font-medium">{assignee?.displayName ?? task.assigneeId}</p>
-            </div>
-            <div className="rounded-xl border-2 border-zinc-900 bg-zinc-50 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
-              <p className="text-xs text-zinc-500">Reporter</p>
-              <p className="mt-1 font-medium">{reporter?.displayName ?? task.reporterId}</p>
-            </div>
-            <div className="rounded-xl border-2 border-zinc-900 bg-zinc-50 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
-              <p className="text-xs text-zinc-500">Owner</p>
-              <p className="mt-1 font-medium">{owner?.displayName ?? task.ownerId}</p>
-            </div>
-            <div className="rounded-xl border-2 border-zinc-900 bg-zinc-50 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
-              <p className="text-xs text-zinc-500">Due Date</p>
-              <p className="mt-1 font-medium">{formatDateTime(task.dueDate)}</p>
-            </div>
+          <div className="rounded-xl border-2 border-zinc-900 bg-zinc-50 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
+            <p className="text-xs text-zinc-500">Owner</p>
+            <p className="mt-1 font-medium">{owner?.displayName ?? task.ownerId}</p>
           </div>
-
-          <div className="space-y-2">
-            <CardTitle>Status 변경</CardTitle>
-            <div className="flex flex-wrap gap-2">
-              {(Object.keys(statusMeta) as TaskStatus[]).map((status) => (
-                <Button
-                  key={status}
-                  className={neoButton}
-                  size="sm"
-                  variant={status === task.status ? "default" : "secondary"}
-                  disabled={!writable}
-                  onClick={() => onMoveStatus(status)}
-                >
-                  {statusMeta[status].label}
-                </Button>
-              ))}
-            </div>
-            {!writable ? (
-              <CardDescription>현재 권한은 읽기 전용입니다. 상태 변경은 Editor 이상에서 가능합니다.</CardDescription>
-            ) : null}
+          <div className="rounded-xl border-2 border-zinc-900 bg-zinc-50 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
+            <p className="text-xs text-zinc-500">Due Date</p>
+            <p className="mt-1 font-medium">{formatDateTime(task.dueDate)}</p>
           </div>
-        </Card>
+        </div>
 
-        <Card className={`${neoCard} space-y-4`}>
-          <div>
-            <CardTitle>Comments</CardTitle>
-            <CardDescription className="mt-1">{taskComments.length}개의 댓글</CardDescription>
-          </div>
-
-          <form onSubmit={onSubmitComment} className="space-y-2">
-            <label htmlFor="task-comment-body" className="block text-xs font-medium text-zinc-600 dark:text-zinc-300">
-              댓글 입력
-            </label>
-            <textarea
-              id="task-comment-body"
-              value={commentBody}
-              onChange={(event) => setCommentBody(event.target.value)}
-              placeholder="코멘트를 입력하세요..."
-              rows={4}
-              disabled={!writable}
-              aria-describedby={!writable ? "task-comment-readonly-reason" : undefined}
-              className="w-full rounded-md border-2 border-zinc-900 bg-white px-3 py-2 text-sm outline-none shadow-[2px_2px_0_0_rgb(24,24,27)] transition dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
-            />
-            <Button type="submit" size="sm" className={`w-full ${neoButton}`} disabled={!writable}>
-              댓글 등록
-            </Button>
-          </form>
-          {!writable ? (
-            <CardDescription id="task-comment-readonly-reason">현재 권한은 읽기 전용이라 댓글을 등록할 수 없습니다.</CardDescription>
-          ) : null}
-
-          {feedback ? (
-            <p
-              role="status"
-              aria-live="polite"
-              aria-atomic="true"
-              className="rounded-md border-2 border-zinc-900 bg-zinc-100 px-3 py-2 text-xs text-zinc-700 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800 dark:text-zinc-200 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
-            >
-              {feedback}
-            </p>
-          ) : null}
-
-          <div className="max-h-[460px] space-y-2 overflow-auto pr-1">
-            {taskComments.map((comment) => (
-              <div
-                key={comment.id}
-                className="rounded-lg border-2 border-zinc-900 bg-zinc-50 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
+        <div className="space-y-2">
+          <CardTitle>Status 변경</CardTitle>
+          <div className="flex flex-wrap gap-2">
+            {(Object.keys(statusMeta) as TaskStatus[]).map((status) => (
+              <Button
+                key={status}
+                className={neoButton}
+                size="sm"
+                variant={status === task.status ? "default" : "secondary"}
+                disabled={!writable}
+                onClick={() => onMoveStatus(status)}
               >
-                <div className="mb-1 flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
-                  <span>{userMap.get(comment.authorId)?.displayName ?? comment.authorId}</span>
-                  <span>{formatDateTime(comment.createdAt)}</span>
-                </div>
-                <p className="text-sm leading-6">{comment.body}</p>
-              </div>
+                {statusMeta[status].label}
+              </Button>
             ))}
-            {taskComments.length === 0 ? <p className="text-sm text-zinc-500">첫 댓글을 작성해 보세요.</p> : null}
           </div>
-        </Card>
-      </div>
+          {!writable ? <CardDescription>현재 권한은 읽기 전용입니다. 상태 변경은 Editor 이상에서 가능합니다.</CardDescription> : null}
+        </div>
+
+        {feedback ? (
+          <p
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            className="rounded-md border-2 border-zinc-900 bg-zinc-100 px-3 py-2 text-xs text-zinc-700 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800 dark:text-zinc-200 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
+          >
+            {feedback}
+          </p>
+        ) : null}
+      </Card>
     </section>
   );
 }

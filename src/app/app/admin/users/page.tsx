@@ -7,9 +7,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { UserAutocompleteSelect } from "@/components/ui/user-autocomplete";
+import {
+  getMemberRolesByProjectId,
+  getMembersByProjectId,
+  getProjectNamesByUserId,
+  getUsersById,
+  getUsersNotInProject,
+  mapUsersToOptions
+} from "@/lib/data-management";
 import { canManageProjectMembers } from "@/lib/permissions/roles";
 import { getCurrentUser, useVisualKanbanStore } from "@/lib/store";
-import type { ProjectMemberRole, User } from "@/lib/types";
+import type { ProjectMemberRole } from "@/lib/types";
 import { useShallow } from "zustand/react/shallow";
 
 const neoCard =
@@ -18,17 +26,6 @@ const neoControl =
   "border-2 border-zinc-900 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]";
 
 const USER_PAGE_SIZE = 12;
-
-const memberRoleWeight: Record<ProjectMemberRole, number> = {
-  owner: 3,
-  write: 2,
-  read: 1
-};
-
-function strongerMemberRole(currentRole: ProjectMemberRole | undefined, nextRole: ProjectMemberRole) {
-  if (!currentRole) return nextRole;
-  return memberRoleWeight[nextRole] > memberRoleWeight[currentRole] ? nextRole : currentRole;
-}
 
 export default function AdminUsersPage() {
   const [query, setQuery] = useState("");
@@ -51,67 +48,35 @@ export default function AdminUsersPage() {
 
   const currentUser = useMemo(() => getCurrentUser(users, currentUserId), [users, currentUserId]);
 
-  const memberRolesByProjectId = useMemo(() => {
-    const next = new Map<string, Map<string, ProjectMemberRole>>();
+  const memberRolesByProjectId = useMemo(
+    () =>
+      getMemberRolesByProjectId({
+        projects,
+        projectMemberships
+      }),
+    [projectMemberships, projects]
+  );
 
-    for (const project of projects) {
-      const roleMap = new Map<string, ProjectMemberRole>();
-      roleMap.set(project.ownerId, "owner");
-      next.set(project.id, roleMap);
-    }
+  const userById = useMemo(() => getUsersById(users), [users]);
 
-    for (const membership of projectMemberships) {
-      const roleMap = next.get(membership.projectId);
-      if (!roleMap) continue;
+  const membersByProjectId = useMemo(
+    () =>
+      getMembersByProjectId({
+        projects,
+        memberRolesByProjectId,
+        usersById: userById
+      }),
+    [memberRolesByProjectId, projects, userById]
+  );
 
-      const currentRole = roleMap.get(membership.userId);
-      roleMap.set(membership.userId, strongerMemberRole(currentRole, membership.role));
-    }
-
-    return next;
-  }, [projectMemberships, projects]);
-
-  const userById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
-
-  const membersByProjectId = useMemo(() => {
-    const next = new Map<string, Array<{ user: User; role: ProjectMemberRole }>>();
-
-    for (const project of projects) {
-      const roleMap = memberRolesByProjectId.get(project.id) ?? new Map<string, ProjectMemberRole>();
-
-      const members = [...roleMap.entries()]
-        .map(([userId, role]) => {
-          const user = userById.get(userId);
-          if (!user) return null;
-          return { user, role };
-        })
-        .filter((item): item is { user: User; role: ProjectMemberRole } => Boolean(item))
-        .sort((left, right) => left.user.displayName.localeCompare(right.user.displayName));
-
-      next.set(project.id, members);
-    }
-
-    return next;
-  }, [memberRolesByProjectId, projects, userById]);
-
-  const projectNamesByUserId = useMemo(() => {
-    const next = new Map<string, string[]>();
-
-    for (const project of projects) {
-      const members = membersByProjectId.get(project.id) ?? [];
-      for (const member of members) {
-        const prev = next.get(member.user.id) ?? [];
-        next.set(member.user.id, [...prev, project.name]);
-      }
-    }
-
-    for (const [userId, projectNames] of next.entries()) {
-      const deduplicated = [...new Set(projectNames)].sort((left, right) => left.localeCompare(right));
-      next.set(userId, deduplicated);
-    }
-
-    return next;
-  }, [membersByProjectId, projects]);
+  const projectNamesByUserId = useMemo(
+    () =>
+      getProjectNamesByUserId({
+        projects,
+        membersByProjectId
+      }),
+    [membersByProjectId, projects]
+  );
 
   const manageableProjectIdSet = useMemo(() => {
     const manageable = new Set<string>();
@@ -182,20 +147,14 @@ export default function AdminUsersPage() {
 
   const usersNotInSelectedProject = useMemo(() => {
     if (!selectedModalProject) return [];
-
-    const roleMap = memberRolesByProjectId.get(selectedModalProject.id) ?? new Map<string, ProjectMemberRole>();
-
-    return users
-      .filter((user) => !roleMap.has(user.id))
-      .sort((left, right) => left.displayName.localeCompare(right.displayName));
+    return getUsersNotInProject({
+      users,
+      memberRolesByProjectId,
+      projectId: selectedModalProject.id
+    });
   }, [memberRolesByProjectId, selectedModalProject, users]);
   const memberCandidateOptions = useMemo(
-    () =>
-      usersNotInSelectedProject.map((user) => ({
-        id: user.id,
-        label: user.displayName,
-        secondaryLabel: `@${user.username}`
-      })),
+    () => mapUsersToOptions(usersNotInSelectedProject),
     [usersNotInSelectedProject]
   );
 

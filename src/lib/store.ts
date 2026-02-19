@@ -4,10 +4,8 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import {
   seedActivities,
-  seedComments,
   seedKanbanHistory,
   seedKanbanTasks,
-  seedMindmapNodes,
   seedProjectMemberships,
   seedPersonalTodos,
   seedPermissions,
@@ -74,6 +72,9 @@ const WORKSPACE_STYLE_PRESETS = new Set<WorkspaceStylePreset>([
   "modern-light",
   "modern-brown"
 ]);
+const FEATURE_KEYS: FeatureKey[] = ["project", "kanban", "whiteboard", "gantt", "taskboard", "todo", "search"];
+const FEATURE_KEY_SET = new Set<string>(FEATURE_KEYS);
+const ACTIVITY_TYPE_SET = new Set<string>(["login", "task_move", "permission_change", "task_create"]);
 
 function normalizeWorkspaceLanguage(language: WorkspaceLanguage | null | undefined): WorkspaceLanguage {
   return language === "en" ? "en" : "ko";
@@ -390,6 +391,19 @@ function normalizeUserPart(part?: string) {
   return normalized && normalized.length > 0 ? normalized : undefined;
 }
 
+function normalizePermissionFeature(feature: unknown): FeatureKey | null {
+  if (typeof feature !== "string") return null;
+  if (feature === "mindmap") return "whiteboard";
+  if (feature === "comments") return null;
+  return FEATURE_KEY_SET.has(feature) ? (feature as FeatureKey) : null;
+}
+
+function normalizeActivityType(type: unknown): Activity["type"] | null {
+  if (typeof type !== "string") return null;
+  if (type === "comment_add") return null;
+  return ACTIVITY_TYPE_SET.has(type) ? (type as Activity["type"]) : null;
+}
+
 const LEGACY_TEST_ACCOUNT_USERNAMES = new Set(["editor", "viewer", "me"]);
 
 function sanitizeLegacySeedAccounts(state: VisualKanbanState): VisualKanbanState {
@@ -477,14 +491,41 @@ function sanitizeLegacySeedAccounts(state: VisualKanbanState): VisualKanbanState
 
   const tasks = state.tasks.filter((task) => projectIds.has(task.projectId)).map(normalizeTaskUsers);
   const kanbanTasks = state.kanbanTasks.filter((task) => projectIds.has(task.projectId)).map(normalizeTaskUsers);
-  const knownTaskIds = new Set([...tasks.map((task) => task.id), ...kanbanTasks.map((task) => task.id)]);
+  const permissions: VisualKanbanState["permissions"] = [];
+  const seenPermissionKeys = new Set<string>();
+
+  for (const permission of state.permissions) {
+    if (!projectIds.has(permission.projectId) || !validUserIds.has(permission.userId)) continue;
+    const feature = normalizePermissionFeature((permission as { feature?: unknown }).feature);
+    if (!feature) continue;
+
+    const dedupeKey = `${permission.projectId}:${permission.userId}:${feature}`;
+    if (seenPermissionKeys.has(dedupeKey)) continue;
+    seenPermissionKeys.add(dedupeKey);
+
+    permissions.push({
+      ...permission,
+      feature
+    });
+  }
+
+  const activities: VisualKanbanState["activities"] = [];
+  for (const activity of state.activities) {
+    const type = normalizeActivityType((activity as { type?: unknown }).type);
+    if (!type) continue;
+    activities.push({
+      ...activity,
+      actorId: normalizeUserId(activity.actorId),
+      type
+    });
+  }
 
   return {
     ...state,
     users,
     projects,
     projectMemberships: [...ownerMemberships, ...projectMemberships],
-    permissions: state.permissions.filter((permission) => projectIds.has(permission.projectId) && validUserIds.has(permission.userId)),
+    permissions,
     personalTodos: state.personalTodos.map((todo) => ({
       ...todo,
       ownerId: normalizeUserId(todo.ownerId)
@@ -498,22 +539,13 @@ function sanitizeLegacySeedAccounts(state: VisualKanbanState): VisualKanbanState
         finalizedBy: normalizeUserId(item.finalizedBy),
         task: normalizeTaskUsers(item.task)
       })),
-    comments: state.comments
-      .filter((comment) => knownTaskIds.has(comment.taskId))
-      .map((comment) => ({
-        ...comment,
-        authorId: normalizeUserId(comment.authorId)
-      })),
     whiteboardScenes: state.whiteboardScenes
       .filter((scene) => projectIds.has(scene.projectId))
       .map((scene) => ({
         ...scene,
         updatedBy: normalizeUserId(scene.updatedBy)
       })),
-    activities: state.activities.map((activity) => ({
-      ...activity,
-      actorId: normalizeUserId(activity.actorId)
-    })),
+    activities,
     currentUserId: state.currentUserId && validUserIds.has(state.currentUserId) ? state.currentUserId : null,
     connectedUserIds: state.connectedUserIds.filter((id) => validUserIds.has(id)),
     workspacePreferencesByAccountId: Object.fromEntries(
@@ -586,8 +618,6 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       tasks: seedTasks,
       kanbanTasks: seedKanbanTasks,
       kanbanHistory: seedKanbanHistory,
-      comments: seedComments,
-      mindmapNodes: seedMindmapNodes,
       whiteboardScenes: seedWhiteboardScenes,
       activities: seedActivities,
       currentUserId: null,
@@ -1031,8 +1061,6 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
           return { ok: false, reason: "프로젝트 참여자(Owner/Write)만 삭제할 수 있습니다." };
         }
 
-        const relatedTaskIdSet = new Set(state.tasks.filter((task) => task.projectId === projectId).map((task) => task.id));
-
         set((prevState) => ({
           projects: prevState.projects.filter((item) => item.id !== projectId),
           projectMemberships: prevState.projectMemberships.filter((membership) => membership.projectId !== projectId),
@@ -1040,8 +1068,6 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
           tasks: prevState.tasks.filter((task) => task.projectId !== projectId),
           kanbanTasks: prevState.kanbanTasks.filter((task) => task.projectId !== projectId),
           kanbanHistory: prevState.kanbanHistory.filter((historyItem) => historyItem.projectId !== projectId),
-          comments: prevState.comments.filter((comment) => !relatedTaskIdSet.has(comment.taskId)),
-          mindmapNodes: prevState.mindmapNodes.filter((node) => node.projectId !== projectId),
           whiteboardScenes: prevState.whiteboardScenes.filter((scene) => scene.projectId !== projectId),
           recentProjectIdByAccountId: Object.fromEntries(
             Object.entries(prevState.recentProjectIdByAccountId).filter(([, recentProjectId]) => recentProjectId !== projectId)
@@ -1217,7 +1243,7 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
           !canCurrentUserWriteFeature({
             state,
             projectId,
-            feature: "mindmap"
+            feature: "whiteboard"
           })
         ) {
           return { ok: false, reason: "화이트보드 편집 권한이 없습니다." };
@@ -1605,7 +1631,6 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
 
         set((state) => ({
           tasks: state.tasks.filter((task) => !removedTaskIdSet.has(task.id)),
-          comments: state.comments.filter((comment) => !removedTaskIdSet.has(comment.taskId)),
           activities: [
             makeActivity({
               actorId: currentUserId,
@@ -1617,44 +1642,6 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
         }));
 
         return { ok: true, removedTaskIds };
-      },
-
-      addComment: (taskId, body) => {
-        const state = get();
-        const currentUserId = state.currentUserId;
-        if (!currentUserId) return { ok: false, reason: "로그인이 필요합니다." };
-        if (!body.trim()) return { ok: false, reason: "댓글 내용을 입력하세요." };
-
-        const task = state.tasks.find((item) => item.id === taskId);
-        if (!task) return { ok: false, reason: "태스크를 찾지 못했습니다." };
-        if (
-          !canCurrentUserWriteFeature({
-            state,
-            projectId: task.projectId,
-            feature: "gantt"
-          })
-        ) {
-          return { ok: false, reason: "댓글 작성 권한이 없습니다." };
-        }
-
-        set((state) => ({
-          comments: [
-            {
-              id: uid("comment"),
-              taskId,
-              authorId: currentUserId,
-              body,
-              createdAt: nowIso()
-            },
-            ...state.comments
-          ],
-          activities: [makeActivity({ actorId: currentUserId, type: "comment_add", message: `${task.title}에 댓글 작성` }), ...state.activities].slice(
-            0,
-            200
-          )
-        }));
-
-        return { ok: true };
       },
 
       setPermission: (projectId, feature, userId, role: AccessRole) => {
@@ -1836,11 +1823,15 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
     {
       name: "visual-kanban-state",
       storage: persistStorage,
-      merge: (persistedState, currentState) =>
-        sanitizeLegacySeedAccounts({
+      merge: (persistedState, currentState) => {
+        const persistedEntries = Object.entries((persistedState as Record<string, unknown>) ?? {}).filter(([key]) => key in currentState);
+        const restPersistedState = Object.fromEntries(persistedEntries);
+
+        return sanitizeLegacySeedAccounts({
           ...currentState,
-          ...(persistedState as Partial<VisualKanbanState>)
-        } as VisualKanbanState),
+          ...(restPersistedState as Partial<VisualKanbanState>)
+        } as VisualKanbanState);
+      },
       partialize: (state) => ({
         users: state.users,
         projects: state.projects,
@@ -1850,8 +1841,6 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
         tasks: state.tasks,
         kanbanTasks: state.kanbanTasks,
         kanbanHistory: state.kanbanHistory,
-        comments: state.comments,
-        mindmapNodes: state.mindmapNodes,
         whiteboardScenes: state.whiteboardScenes,
         activities: state.activities,
         currentUserId: state.currentUserId,
