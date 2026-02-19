@@ -2046,9 +2046,6 @@ export default function GanttPage() {
                         <span>강조</span>
                       </Button>
                     </div>
-                    <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                      작업명 텍스트를 드래그해 순서/계층을 바꿀 수 있습니다. (위/아래/하위 이동)
-                    </p>
                     <div
                       className="absolute inset-y-0 -right-4 z-[60] flex w-3 cursor-col-resize items-center justify-center"
                       onPointerDown={beginColumnResize}

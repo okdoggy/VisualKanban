@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { KanbanSquare, LayoutDashboard, ListTodo, LogOut, PenTool, Search, User, Waypoints, X } from "lucide-react";
+import { KanbanSquare, LayoutDashboard, ListTodo, LogOut, PanelLeftClose, PanelLeftOpen, PenTool, Search, User, Waypoints, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,7 @@ const nav = [
 ] as const;
 
 const styleOptions: WorkspaceStyle[] = ["neo-classic", "neo-vivid", "modern-light", "modern-dark", "warm-brown"];
+const workspaceCollapsedStorageKey = "visual-kanban-workspace-collapsed";
 
 type ShellStyleClasses = {
   page: string;
@@ -136,6 +137,8 @@ type ShellTabLabels = {
 type ShellCopy = {
   workspace: string;
   currentView: string;
+  collapseWorkspace: string;
+  openWorkspace: string;
   settings: string;
   style: string;
   language: string;
@@ -164,6 +167,8 @@ const shellCopyByLanguage: Record<WorkspaceLanguage, ShellCopy> = {
   ko: {
     workspace: "워크스페이스",
     currentView: "현재 화면",
+    collapseWorkspace: "워크스페이스 접기",
+    openWorkspace: "워크스페이스 펼치기",
     settings: "워크스페이스 설정",
     style: "스타일",
     language: "언어",
@@ -218,6 +223,8 @@ const shellCopyByLanguage: Record<WorkspaceLanguage, ShellCopy> = {
   en: {
     workspace: "Workspace",
     currentView: "Current view",
+    collapseWorkspace: "Collapse workspace",
+    openWorkspace: "Expand workspace",
     settings: "Workspace settings",
     style: "Style",
     language: "Language",
@@ -304,6 +311,16 @@ function getProjectIdFromPathname(pathname: string) {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const [isWorkspaceCollapsed, setIsWorkspaceCollapsed] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    try {
+      return window.localStorage.getItem(workspaceCollapsedStorageKey) === "1";
+    } catch {
+      return false;
+    }
+  });
   const [globalSearch, setGlobalSearch] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
@@ -417,6 +434,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const collapseWorkspace = useCallback(() => {
+    setIsSearchOpen(false);
+    setIsAccountMenuOpen(false);
+    setIsWorkspaceCollapsed(true);
+  }, []);
+
+  const openWorkspace = useCallback(() => {
+    setIsWorkspaceCollapsed(false);
+  }, []);
+
   const submitGlobalSearch = useCallback(() => {
     const query = globalSearch.trim();
 
@@ -436,6 +463,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     toast.success(shellCopy.iconSaveSuccess);
   }, [iconDraft, shellCopy.iconSaveFailed, shellCopy.iconSaveSuccess, updateMyIcon]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      if (isWorkspaceCollapsed) {
+        window.localStorage.setItem(workspaceCollapsedStorageKey, "1");
+        return;
+      }
+
+      window.localStorage.removeItem(workspaceCollapsedStorageKey);
+    } catch {
+      // no-op when storage is unavailable
+    }
+  }, [isWorkspaceCollapsed]);
 
   useEffect(() => {
     ensureSessionCheck();
@@ -464,7 +508,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => {
       window.removeEventListener("keydown", onShortcut);
     };
-  }, []);
+  }, [isWorkspaceCollapsed]);
 
   useEffect(() => {
     if (!isSearchOpen) {
@@ -539,188 +583,200 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className={`min-h-screen p-3 sm:p-4 ${activeStyle.page}`}>
       <div className="flex min-h-[calc(100vh-1.5rem)] gap-4">
-        <aside
-          className={`sticky top-3 hidden h-[calc(100vh-1.5rem)] w-72 shrink-0 flex-col border-4 border-zinc-900 p-4 shadow-[8px_8px_0_0_#18181b] xl:flex dark:border-zinc-100 dark:shadow-[8px_8px_0_0_#f4f4f5] ${activeStyle.sidebar}`}
-        >
-          <div className="mb-6 space-y-1">
-            <p className="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-700 dark:text-zinc-300">{shellCopy.workspace}</p>
-            <h2 className="text-2xl font-black uppercase tracking-tight text-zinc-900 dark:text-zinc-50">VisualKanban</h2>
-          </div>
-          <nav className="space-y-2">
-            {primaryNav.map((item) => {
-              const Icon = item.icon;
-              return (
+        {!isWorkspaceCollapsed ? (
+          <aside
+            className={`sticky top-3 hidden h-[calc(100vh-1.5rem)] w-72 shrink-0 flex-col border-4 border-zinc-900 p-4 shadow-[8px_8px_0_0_#18181b] xl:flex dark:border-zinc-100 dark:shadow-[8px_8px_0_0_#f4f4f5] ${activeStyle.sidebar}`}
+          >
+            <div className="mb-6 space-y-1">
+              <p className="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-700 dark:text-zinc-300">{shellCopy.workspace}</p>
+              <h2 className="text-2xl font-black uppercase tracking-tight text-zinc-900 dark:text-zinc-50">VisualKanban</h2>
+            </div>
+            <nav className="space-y-2">
+              {primaryNav.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.key}
+                    href={item.href}
+                    className={`flex items-center gap-2.5 border-2 px-3 py-2 text-sm font-bold uppercase tracking-wide transition ${
+                      item.active ? activeStyle.navActive : activeStyle.navInactive
+                    }`}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{shellCopy.nav[item.labelKey]}</span>
+                  </Link>
+                );
+              })}
+            </nav>
+            <div className={`mt-auto space-y-3 border-[3px] p-3 ${activeStyle.settingsPanel}`}>
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-600 dark:text-zinc-300">{shellCopy.settings}</p>
+              <div className="space-y-1">
+                <label htmlFor="workspace-style-select" className="text-[11px] font-black uppercase tracking-[0.12em] text-zinc-700 dark:text-zinc-300">
+                  {shellCopy.style}
+                </label>
+                <select
+                  id="workspace-style-select"
+                  value={workspaceStyle}
+                  onChange={(event) => setWorkspaceStyle(event.target.value as WorkspaceStyle)}
+                  className={`h-9 w-full rounded-none border-2 px-2 text-xs font-bold ${activeStyle.settingsSelect}`}
+                >
+                  {styleOptions.map((styleOption) => (
+                    <option key={styleOption} value={styleOption}>
+                      {shellCopy.styleOptions[styleOption]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="workspace-language-select" className="text-[11px] font-black uppercase tracking-[0.12em] text-zinc-700 dark:text-zinc-300">
+                  {shellCopy.language}
+                </label>
+                <select
+                  id="workspace-language-select"
+                  value={workspaceLanguage}
+                  onChange={(event) => setWorkspaceLanguage(event.target.value as WorkspaceLanguage)}
+                  className={`h-9 w-full rounded-none border-2 px-2 text-xs font-bold ${activeStyle.settingsSelect}`}
+                >
+                  {(Object.keys(shellCopy.languageOptions) as WorkspaceLanguage[]).map((languageCode) => (
+                    <option key={languageCode} value={languageCode}>
+                      {shellCopy.languageOptions[languageCode]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {canOpenUserManagement ? (
                 <Link
-                  key={item.key}
-                  href={item.href}
-                  className={`flex items-center gap-2.5 border-2 px-3 py-2 text-sm font-bold uppercase tracking-wide transition ${
-                    item.active ? activeStyle.navActive : activeStyle.navInactive
+                  href="/app/admin/users"
+                  className={`inline-flex h-9 w-full items-center justify-center border-2 px-2 text-xs font-black uppercase tracking-[0.12em] transition ${
+                    pathname === "/app/admin/users" ? activeStyle.navActive : activeStyle.navInactive
                   }`}
                 >
-                  <Icon className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{shellCopy.nav[item.labelKey]}</span>
+                  {shellCopy.tabs.adminUsers}
                 </Link>
-              );
-            })}
-          </nav>
-          <div className={`mt-auto space-y-3 border-[3px] p-3 ${activeStyle.settingsPanel}`}>
-            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-600 dark:text-zinc-300">{shellCopy.settings}</p>
-            <div className="space-y-1">
-              <label htmlFor="workspace-style-select" className="text-[11px] font-black uppercase tracking-[0.12em] text-zinc-700 dark:text-zinc-300">
-                {shellCopy.style}
-              </label>
-              <select
-                id="workspace-style-select"
-                value={workspaceStyle}
-                onChange={(event) => setWorkspaceStyle(event.target.value as WorkspaceStyle)}
-                className={`h-9 w-full rounded-none border-2 px-2 text-xs font-bold ${activeStyle.settingsSelect}`}
-              >
-                {styleOptions.map((styleOption) => (
-                  <option key={styleOption} value={styleOption}>
-                    {shellCopy.styleOptions[styleOption]}
-                  </option>
-                ))}
-              </select>
+              ) : null}
             </div>
-            <div className="space-y-1">
-              <label htmlFor="workspace-language-select" className="text-[11px] font-black uppercase tracking-[0.12em] text-zinc-700 dark:text-zinc-300">
-                {shellCopy.language}
-              </label>
-              <select
-                id="workspace-language-select"
-                value={workspaceLanguage}
-                onChange={(event) => setWorkspaceLanguage(event.target.value as WorkspaceLanguage)}
-                className={`h-9 w-full rounded-none border-2 px-2 text-xs font-bold ${activeStyle.settingsSelect}`}
-              >
-                {(Object.keys(shellCopy.languageOptions) as WorkspaceLanguage[]).map((languageCode) => (
-                  <option key={languageCode} value={languageCode}>
-                    {shellCopy.languageOptions[languageCode]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {canOpenUserManagement ? (
-              <Link
-                href="/app/admin/users"
-                className={`inline-flex h-9 w-full items-center justify-center border-2 px-2 text-xs font-black uppercase tracking-[0.12em] transition ${
-                  pathname === "/app/admin/users" ? activeStyle.navActive : activeStyle.navInactive
-                }`}
-              >
-                {shellCopy.tabs.adminUsers}
-              </Link>
-            ) : null}
-          </div>
-        </aside>
+          </aside>
+        ) : null}
 
         <main className="min-w-0 flex-1 pb-4">
           <header
             className={`mb-5 border-4 border-zinc-900 px-4 py-3 shadow-[8px_8px_0_0_#18181b] dark:border-zinc-100 dark:shadow-[8px_8px_0_0_#f4f4f5] ${activeStyle.header}`}
           >
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0 space-y-0.5">
-                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-zinc-700 dark:text-zinc-300">{shellCopy.currentView}</p>
-                <h1 className="truncate text-base font-black uppercase tracking-wide text-zinc-900 md:text-lg dark:text-zinc-50">{currentTabLabel}</h1>
-              </div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 space-y-0.5">
+                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-zinc-700 dark:text-zinc-300">{shellCopy.currentView}</p>
+                  <h1 className="truncate text-base font-black uppercase tracking-wide text-zinc-900 md:text-lg dark:text-zinc-50">{currentTabLabel}</h1>
+                </div>
 
-              <div className="flex items-center gap-2">
-                {connectedUsers.map((user) => (
-                  <span
-                    key={`connected-user-${user.id}`}
-                    title={`${user.displayName} (${user.username})`}
-                    className={`inline-flex h-8 min-w-8 items-center justify-center border-2 px-1 text-[10px] font-black ${activeStyle.connectedUserChip}`}
-                  >
-                    {(user.icon ?? initials(user.displayName)).slice(0, 4)}
-                  </span>
-                ))}
+                <div className="flex items-center gap-2">
+                  {connectedUsers.map((user) => (
+                    <span
+                      key={`connected-user-${user.id}`}
+                      title={`${user.displayName} (${user.username})`}
+                      className={`inline-flex h-8 min-w-8 items-center justify-center border-2 px-1 text-[10px] font-black ${activeStyle.connectedUserChip}`}
+                    >
+                      {(user.icon ?? initials(user.displayName)).slice(0, 4)}
+                    </span>
+                  ))}
 
-                <Button
-                  ref={searchTriggerRef}
-                  variant="ghost"
-                  size="icon"
-                  className={topBarIconButtonClass}
-                  aria-label={shellCopy.openSearch}
-                  aria-controls="global-search-dialog"
-                  aria-expanded={isSearchOpen}
-                  aria-haspopup="dialog"
-                  onClick={() => {
-                    setIsAccountMenuOpen(false);
-                    setIsSearchOpen(true);
-                  }}
-                >
-                  <Search className="h-4 w-4" />
-                </Button>
-
-                <div ref={accountMenuRef} className="relative">
                   <Button
                     variant="ghost"
                     size="icon"
                     className={topBarIconButtonClass}
-                    aria-label={shellCopy.accountMenu}
-                    aria-haspopup="menu"
-                    aria-expanded={isAccountMenuOpen}
-                    onClick={() =>
-                      setIsAccountMenuOpen((prev) => {
-                        const next = !prev;
-                        if (next) {
-                          setIconDraft(currentUser.icon ?? initials(currentUser.displayName));
-                        }
-                        return next;
-                      })
-                    }
+                    aria-label={isWorkspaceCollapsed ? shellCopy.openWorkspace : shellCopy.collapseWorkspace}
+                    onClick={isWorkspaceCollapsed ? openWorkspace : collapseWorkspace}
                   >
-                    <User className="h-4 w-4" />
+                    {isWorkspaceCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
                   </Button>
-                  {isAccountMenuOpen ? (
-                    <div
-                      role="menu"
-                      className="absolute right-0 mt-2 w-72 border-4 border-zinc-900 bg-white p-3 shadow-[7px_7px_0_0_#18181b] dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[7px_7px_0_0_#f4f4f5]"
-                    >
-                      <p className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-600 dark:text-zinc-300">{shellCopy.myAccount}</p>
-                      <p className="mt-1 text-sm font-black text-zinc-900 dark:text-zinc-100">{currentUser.displayName}</p>
-                      <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">@{currentUser.username}</p>
-                      <p className="mt-2 border-l-2 border-zinc-900 pl-2 text-xs font-semibold text-zinc-700 dark:border-zinc-100 dark:text-zinc-300">
-                        {shellCopy.role}: {currentUser.baseRole.toUpperCase()}
-                      </p>
 
-                      <div className="mt-3 space-y-1.5 border-2 border-zinc-900 bg-zinc-100 p-2 dark:border-zinc-100 dark:bg-zinc-950">
-                        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-zinc-600 dark:text-zinc-300">{shellCopy.iconEdit}</p>
-                        <div className="flex items-center gap-2">
-                          <Input
-                            value={iconDraft}
-                            onChange={(event) => setIconDraft(event.target.value)}
-                            maxLength={4}
-                            className="h-9 rounded-none border-2 border-zinc-900 bg-white text-xs font-semibold text-zinc-900 placeholder:text-zinc-500 dark:border-zinc-100 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-400"
-                            placeholder={shellCopy.iconPlaceholder}
-                          />
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="h-9 rounded-none border-2 border-zinc-900 bg-lime-300 px-3 text-xs font-black text-zinc-900 shadow-[3px_3px_0_0_#18181b] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_0_#18181b] dark:border-zinc-100 dark:bg-lime-400 dark:text-zinc-950 dark:shadow-[3px_3px_0_0_#f4f4f5] dark:hover:shadow-[2px_2px_0_0_#f4f4f5]"
-                            onClick={saveMyIcon}
-                          >
-                            {shellCopy.save}
-                          </Button>
+                  <Button
+                    ref={searchTriggerRef}
+                    variant="ghost"
+                    size="icon"
+                    className={topBarIconButtonClass}
+                    aria-label={shellCopy.openSearch}
+                    aria-controls="global-search-dialog"
+                    aria-expanded={isSearchOpen}
+                    aria-haspopup="dialog"
+                    onClick={() => {
+                      setIsAccountMenuOpen(false);
+                      setIsSearchOpen(true);
+                    }}
+                  >
+                    <Search className="h-4 w-4" />
+                  </Button>
+
+                  <div ref={accountMenuRef} className="relative">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={topBarIconButtonClass}
+                      aria-label={shellCopy.accountMenu}
+                      aria-haspopup="menu"
+                      aria-expanded={isAccountMenuOpen}
+                      onClick={() =>
+                        setIsAccountMenuOpen((prev) => {
+                          const next = !prev;
+                          if (next) {
+                            setIconDraft(currentUser.icon ?? initials(currentUser.displayName));
+                          }
+                          return next;
+                        })
+                      }
+                    >
+                      <User className="h-4 w-4" />
+                    </Button>
+                    {isAccountMenuOpen ? (
+                      <div
+                        role="menu"
+                        className="absolute right-0 mt-2 w-72 border-4 border-zinc-900 bg-white p-3 shadow-[7px_7px_0_0_#18181b] dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[7px_7px_0_0_#f4f4f5]"
+                      >
+                        <p className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-600 dark:text-zinc-300">{shellCopy.myAccount}</p>
+                        <p className="mt-1 text-sm font-black text-zinc-900 dark:text-zinc-100">{currentUser.displayName}</p>
+                        <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">@{currentUser.username}</p>
+                        <p className="mt-2 border-l-2 border-zinc-900 pl-2 text-xs font-semibold text-zinc-700 dark:border-zinc-100 dark:text-zinc-300">
+                          {shellCopy.role}: {currentUser.baseRole.toUpperCase()}
+                        </p>
+
+                        <div className="mt-3 space-y-1.5 border-2 border-zinc-900 bg-zinc-100 p-2 dark:border-zinc-100 dark:bg-zinc-950">
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-zinc-600 dark:text-zinc-300">{shellCopy.iconEdit}</p>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              value={iconDraft}
+                              onChange={(event) => setIconDraft(event.target.value)}
+                              maxLength={4}
+                              className="h-9 rounded-none border-2 border-zinc-900 bg-white text-xs font-semibold text-zinc-900 placeholder:text-zinc-500 dark:border-zinc-100 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-400"
+                              placeholder={shellCopy.iconPlaceholder}
+                            />
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="h-9 rounded-none border-2 border-zinc-900 bg-lime-300 px-3 text-xs font-black text-zinc-900 shadow-[3px_3px_0_0_#18181b] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_0_#18181b] dark:border-zinc-100 dark:bg-lime-400 dark:text-zinc-950 dark:shadow-[3px_3px_0_0_#f4f4f5] dark:hover:shadow-[2px_2px_0_0_#f4f4f5]"
+                              onClick={saveMyIcon}
+                            >
+                              {shellCopy.save}
+                            </Button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ) : null}
-                </div>
+                    ) : null}
+                  </div>
 
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={topBarIconButtonClass}
-                  aria-label={shellCopy.logout}
-                  onClick={() => {
-                    setIsAccountMenuOpen(false);
-                    logout();
-                    router.push("/login");
-                  }}
-                >
-                  <LogOut className="h-4 w-4" />
-                </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={topBarIconButtonClass}
+                    aria-label={shellCopy.logout}
+                    onClick={() => {
+                      setIsAccountMenuOpen(false);
+                      logout();
+                      router.push("/login");
+                    }}
+                  >
+                    <LogOut className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
-            </div>
           </header>
 
           <nav className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:hidden">
@@ -801,9 +857,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           ) : null}
 
-          <div className={`border-4 p-4 lg:p-5 ${activeStyle.mainContent}`}>
-            {children}
-          </div>
+          <div className={`border-4 p-4 lg:p-5 ${activeStyle.mainContent}`}>{children}</div>
         </main>
       </div>
     </div>
