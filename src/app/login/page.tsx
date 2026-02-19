@@ -22,6 +22,19 @@ export default function LoginPage() {
 
   const sampleUsers = useMemo(() => users.map((user) => user.username).join(", "), [users]);
 
+  const resetLocalAuthState = () => {
+    if (typeof window === "undefined") return;
+
+    const shouldReset = window.confirm(
+      "로컬 로그인 데이터를 초기화할까요?\n저장된 비밀번호/작업 상태가 초기값으로 돌아갑니다."
+    );
+    if (!shouldReset) return;
+
+    window.localStorage.removeItem("visual-kanban-state");
+    document.cookie = "vk_user=; Max-Age=0; Path=/";
+    window.location.reload();
+  };
+
   const onSubmit = (event: React.FormEvent) => {
     event.preventDefault();
     const result = login(username, password);
@@ -92,6 +105,14 @@ export default function LoginPage() {
         <div className="mt-4 border-2 border-zinc-900 bg-white p-3 text-xs font-medium text-zinc-700 dark:border-zinc-100 dark:bg-zinc-950 dark:text-zinc-300">
           테스트 계정: {sampleUsers} / 초기 비밀번호: 0000
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={resetLocalAuthState}
+          className="mt-3 h-9 w-full rounded-none border-2 border-zinc-900 text-xs font-bold uppercase tracking-[0.1em] dark:border-zinc-100"
+        >
+          로그인 문제 시 로컬 상태 초기화
+        </Button>
       </Card>
     </div>
   );

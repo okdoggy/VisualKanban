@@ -1,5 +1,6 @@
 export type BaseRole = "admin" | "editor" | "viewer";
 export type AccessRole = BaseRole | "private";
+export type ProjectMemberRole = "owner" | "write" | "read";
 
 export type FeatureKey =
   | "project"
@@ -44,6 +45,15 @@ export interface Project {
   id: string;
   name: string;
   description: string;
+  ownerId: string;
+}
+
+export interface ProjectMembership {
+  id: string;
+  projectId: string;
+  userId: string;
+  role: ProjectMemberRole;
+  updatedAt: string;
 }
 
 export interface PermissionAssignment {
@@ -159,6 +169,7 @@ export interface Activity {
 export interface VisualKanbanState {
   users: User[];
   projects: Project[];
+  projectMemberships: ProjectMembership[];
   permissions: PermissionAssignment[];
   personalTodos: PersonalTodo[];
   tasks: Task[];
@@ -174,12 +185,22 @@ export interface VisualKanbanState {
   workspaceLanguage: WorkspaceLanguage;
   workspaceStyle: WorkspaceStyle;
   workspacePreferencesByAccountId: Record<string, AccountWorkspacePreference>;
+  recentProjectIdByAccountId: Record<string, string>;
 
   login: (username: string, password: string) => { ok: boolean; reason?: string };
   logout: () => void;
   changePassword: (nextPassword: string) => { ok: boolean; reason?: string };
   updateMyIcon: (nextIcon: string) => { ok: boolean; reason?: string };
+  createUser: (input: {
+    username: string;
+    displayName: string;
+    password: string;
+    baseRole?: BaseRole;
+  }) => { ok: boolean; reason?: string; userId?: string };
   addProject: (input: Pick<Project, "name" | "description">) => { ok: boolean; reason?: string; projectId?: string };
+  updateProject: (projectId: string, input: Partial<Pick<Project, "name" | "description">>) => { ok: boolean; reason?: string };
+  setProjectMemberRole: (projectId: string, userId: string, role: ProjectMemberRole) => { ok: boolean; reason?: string };
+  deleteProject: (projectId: string) => { ok: boolean; reason?: string };
 
   addTodo: (input: AddTodoInput) => { ok: boolean; reason?: string; todoId?: string };
   updateTodo: (todoId: string, patch: UpdateTodoInput) => { ok: boolean; reason?: string };
@@ -203,4 +224,5 @@ export interface VisualKanbanState {
   ensureSessionCheck: () => void;
   setWorkspaceLanguage: (nextLanguage: WorkspaceLanguage) => void;
   setWorkspaceStyle: (nextStyle: WorkspaceStyle) => void;
+  setRecentProjectForCurrentAccount: (projectId: string) => void;
 }

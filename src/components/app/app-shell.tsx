@@ -7,16 +7,17 @@ import { KanbanSquare, LayoutDashboard, ListTodo, LogOut, PenTool, Search, User,
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getCurrentUser, useVisualKanbanStore } from "@/lib/store";
+import { canRead } from "@/lib/permissions/roles";
+import { getCurrentUser, getEffectiveRoleForFeature, useVisualKanbanStore } from "@/lib/store";
 import type { WorkspaceLanguage, WorkspaceStyle } from "@/lib/types";
 import { useShallow } from "zustand/react/shallow";
 
 const nav = [
   { href: "/app/dashboard", labelKey: "dashboard", icon: LayoutDashboard },
   { href: "/app/todo", labelKey: "todo", icon: ListTodo },
-  { href: "/app/projects/proj-visual/whiteboard", labelKey: "whiteboard", icon: PenTool },
-  { href: "/app/projects/proj-visual/kanban", labelKey: "kanban", icon: KanbanSquare },
-  { href: "/app/projects/proj-visual/gantt", labelKey: "gantt", icon: Waypoints }
+  { projectRouteKey: "whiteboard", labelKey: "whiteboard", icon: PenTool },
+  { projectRouteKey: "kanban", labelKey: "kanban", icon: KanbanSquare },
+  { projectRouteKey: "gantt", labelKey: "gantt", icon: Waypoints }
 ] as const;
 
 const styleOptions: WorkspaceStyle[] = ["neo-classic", "neo-vivid", "modern-light", "modern-dark", "warm-brown"];
@@ -121,12 +122,12 @@ type ShellTabLabels = {
   gantt: string;
   kanban: string;
   whiteboard: string;
+  mindmap: string;
   permissions: string;
   taskDetail: string;
   dashboard: string;
   todo: string;
   search: string;
-  comments: string;
   adminUsers: string;
   adminAudit: string;
   fallback: string;
@@ -177,12 +178,12 @@ const shellCopyByLanguage: Record<WorkspaceLanguage, ShellCopy> = {
       gantt: "간트 차트",
       kanban: "칸반 보드",
       whiteboard: "화이트보드",
+      mindmap: "마인드맵",
       permissions: "권한 설정",
       taskDetail: "태스크 상세",
       dashboard: "대시보드",
       todo: "할 일",
       search: "검색",
-      comments: "댓글",
       adminUsers: "사용자 관리",
       adminAudit: "감사 로그",
       fallback: "VisualKanban"
@@ -231,12 +232,12 @@ const shellCopyByLanguage: Record<WorkspaceLanguage, ShellCopy> = {
       gantt: "Gantt chart",
       kanban: "Kanban board",
       whiteboard: "Whiteboard",
+      mindmap: "Mind map",
       permissions: "Permissions",
       taskDetail: "Task detail",
       dashboard: "Dashboard",
       todo: "To do",
       search: "Search",
-      comments: "Comments",
       adminUsers: "User management",
       adminAudit: "Audit log",
       fallback: "VisualKanban"
@@ -282,16 +283,22 @@ function getTabLabel(pathname: string, tabs: ShellTabLabels) {
   if (pathname.startsWith("/app/projects/") && pathname.includes("/gantt")) return tabs.gantt;
   if (pathname.startsWith("/app/projects/") && pathname.includes("/kanban")) return tabs.kanban;
   if (pathname.startsWith("/app/projects/") && pathname.includes("/whiteboard")) return tabs.whiteboard;
-  if (pathname.startsWith("/app/projects/") && pathname.includes("/mindmap")) return tabs.whiteboard;
+  if (pathname.startsWith("/app/projects/") && pathname.includes("/mindmap")) return tabs.mindmap;
   if (pathname.startsWith("/app/projects/") && pathname.includes("/permissions")) return tabs.permissions;
   if (pathname.startsWith("/app/projects/") && pathname.includes("/tasks/")) return tabs.taskDetail;
   if (pathname === "/app/dashboard") return tabs.dashboard;
   if (pathname === "/app/todo") return tabs.todo;
   if (pathname === "/app/search") return tabs.search;
-  if (pathname === "/app/comments") return tabs.comments;
   if (pathname === "/app/admin/users") return tabs.adminUsers;
   if (pathname === "/app/admin/audit") return tabs.adminAudit;
   return tabs.fallback;
+}
+
+function getProjectIdFromPathname(pathname: string) {
+  const segments = pathname.split("/");
+  const projectsIndex = segments.findIndex((segment) => segment === "projects");
+  if (projectsIndex === -1) return null;
+  return segments[projectsIndex + 1] || null;
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -307,6 +314,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const {
     users,
+    projects,
+    projectMemberships,
+    permissions,
     currentUserId,
     connectedUserIds,
     logout,
@@ -314,11 +324,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     updateMyIcon,
     workspaceLanguage,
     workspaceStyle,
+    recentProjectIdByAccountId,
     setWorkspaceLanguage,
-    setWorkspaceStyle
+    setWorkspaceStyle,
+    setRecentProjectForCurrentAccount
   } = useVisualKanbanStore(
     useShallow((state) => ({
       users: state.users,
+      projects: state.projects,
+      projectMemberships: state.projectMemberships,
+      permissions: state.permissions,
       currentUserId: state.currentUserId,
       connectedUserIds: state.connectedUserIds,
       logout: state.logout,
@@ -326,14 +341,69 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       updateMyIcon: state.updateMyIcon,
       workspaceLanguage: state.workspaceLanguage,
       workspaceStyle: state.workspaceStyle,
+      recentProjectIdByAccountId: state.recentProjectIdByAccountId,
       setWorkspaceLanguage: state.setWorkspaceLanguage,
-      setWorkspaceStyle: state.setWorkspaceStyle
+      setWorkspaceStyle: state.setWorkspaceStyle,
+      setRecentProjectForCurrentAccount: state.setRecentProjectForCurrentAccount
     }))
   );
 
   const shellCopy = useMemo(() => shellCopyByLanguage[workspaceLanguage], [workspaceLanguage]);
   const activeStyle = useMemo(() => shellStyleClasses[workspaceStyle] ?? shellStyleClasses["neo-classic"], [workspaceStyle]);
   const currentUser = useMemo(() => getCurrentUser(users, currentUserId), [users, currentUserId]);
+  const canOpenUserManagement = Boolean(currentUser);
+  const currentProjectId = useMemo(() => getProjectIdFromPathname(pathname), [pathname]);
+  const readableProjectIds = useMemo(() => {
+    if (!currentUser) return null;
+    return projects.reduce<string[]>((readableIds, project) => {
+      const canReadProject = canRead(
+        getEffectiveRoleForFeature({
+          user: currentUser,
+          projectId: project.id,
+          feature: "project",
+          permissions,
+          projectMemberships,
+          projects
+        })
+      );
+
+      if (canReadProject) {
+        readableIds.push(project.id);
+      }
+
+      return readableIds;
+    }, []);
+  }, [currentUser, permissions, projectMemberships, projects]);
+  const recentProjectId = useMemo(() => {
+    if (!currentUser || !readableProjectIds) return null;
+    const candidateProjectId = recentProjectIdByAccountId[currentUser.id];
+    if (!candidateProjectId) return null;
+    return readableProjectIds.includes(candidateProjectId) ? candidateProjectId : null;
+  }, [currentUser, readableProjectIds, recentProjectIdByAccountId]);
+  const fallbackProjectId = readableProjectIds?.[0] ?? null;
+  const resolvedProjectId = currentProjectId ?? recentProjectId ?? fallbackProjectId;
+  const primaryNav = useMemo(
+    () =>
+      nav.map((item) => {
+        if ("href" in item) {
+          return {
+            ...item,
+            href: item.href,
+            active: pathname === item.href,
+            key: item.href
+          };
+        }
+
+        const href = resolvedProjectId ? `/app/projects/${resolvedProjectId}/${item.projectRouteKey}` : "/app/dashboard";
+        return {
+          ...item,
+          href,
+          active: pathname.startsWith("/app/projects/") && pathname.includes(`/${item.projectRouteKey}`),
+          key: item.projectRouteKey
+        };
+      }),
+    [pathname, resolvedProjectId]
+  );
   const currentTabLabel = useMemo(() => getTabLabel(pathname, shellCopy.tabs), [pathname, shellCopy]);
   const connectedUsers = useMemo(
     () => connectedUserIds.map((id) => users.find((user) => user.id === id)).filter((user): user is (typeof users)[number] => Boolean(user)),
@@ -370,6 +440,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     ensureSessionCheck();
   }, [ensureSessionCheck]);
+
+  useEffect(() => {
+    if (!currentUser || !currentProjectId || !pathname.startsWith("/app/projects/")) {
+      return;
+    }
+    setRecentProjectForCurrentAccount(currentProjectId);
+  }, [currentProjectId, currentUser, pathname, setRecentProjectForCurrentAccount]);
 
   useEffect(() => {
     const onShortcut = (event: KeyboardEvent) => {
@@ -470,15 +547,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <h2 className="text-2xl font-black uppercase tracking-tight text-zinc-900 dark:text-zinc-50">VisualKanban</h2>
           </div>
           <nav className="space-y-2">
-            {nav.map((item) => {
-              const active = pathname === item.href;
+            {primaryNav.map((item) => {
               const Icon = item.icon;
               return (
                 <Link
-                  key={item.href}
+                  key={item.key}
                   href={item.href}
                   className={`flex items-center gap-2.5 border-2 px-3 py-2 text-sm font-bold uppercase tracking-wide transition ${
-                    active ? activeStyle.navActive : activeStyle.navInactive
+                    item.active ? activeStyle.navActive : activeStyle.navInactive
                   }`}
                 >
                   <Icon className="h-4 w-4 shrink-0" />
@@ -523,6 +599,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 ))}
               </select>
             </div>
+            {canOpenUserManagement ? (
+              <Link
+                href="/app/admin/users"
+                className={`inline-flex h-9 w-full items-center justify-center border-2 px-2 text-xs font-black uppercase tracking-[0.12em] transition ${
+                  pathname === "/app/admin/users" ? activeStyle.navActive : activeStyle.navInactive
+                }`}
+              >
+                {shellCopy.tabs.adminUsers}
+              </Link>
+            ) : null}
           </div>
         </aside>
 
@@ -636,6 +722,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           </header>
+
+          <nav className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:hidden">
+            {primaryNav.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={`mobile-${item.key}`}
+                  href={item.href}
+                  className={`flex items-center gap-2 border-2 px-3 py-2 text-xs font-bold uppercase tracking-wide ${
+                    item.active ? activeStyle.navActive : activeStyle.navInactive
+                  }`}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{shellCopy.nav[item.labelKey]}</span>
+                </Link>
+              );
+            })}
+          </nav>
 
           {isSearchOpen ? (
             <div

@@ -8,6 +8,7 @@ import {
   seedKanbanHistory,
   seedKanbanTasks,
   seedMindmapNodes,
+  seedProjectMemberships,
   seedPersonalTodos,
   seedPermissions,
   seedProjects,
@@ -15,17 +16,19 @@ import {
   seedWhiteboardScenes,
   seedUsers
 } from "@/lib/data/seed";
-import { canSeeTask, resolveRole } from "@/lib/permissions/roles";
+import { canManageProjectMembers, canSeeTask, canWrite, resolveProjectMemberRole, resolveRole } from "@/lib/permissions/roles";
 import type {
   AccountWorkspacePreference,
   AccessRole,
   AddTodoInput,
   Activity,
+  BaseRole,
   FeatureKey,
   KanbanHistoryItem,
   KanbanTaskPatch,
   KanbanTaskStatus,
   PersonalTodo,
+  ProjectMemberRole,
   Task,
   TaskStatus,
   TodoPriority,
@@ -375,11 +378,61 @@ function trimKanbanHistoryByProject(history: KanbanHistoryItem[]) {
   });
 }
 
+function normalizeBaseRole(baseRole?: BaseRole): BaseRole {
+  if (baseRole === "admin" || baseRole === "editor") {
+    return baseRole;
+  }
+  return "viewer";
+}
+
+function getCurrentUserFromState(state: Pick<VisualKanbanState, "users" | "currentUserId">) {
+  return getCurrentUser(state.users, state.currentUserId);
+}
+
+function getEffectiveRoleInState({
+  state,
+  projectId,
+  feature
+}: {
+  state: Pick<VisualKanbanState, "users" | "currentUserId" | "permissions" | "projectMemberships" | "projects">;
+  projectId: string;
+  feature: FeatureKey;
+}) {
+  const user = getCurrentUserFromState(state);
+  return resolveRole({
+    user,
+    projectId,
+    feature,
+    assignments: state.permissions,
+    projectMemberships: state.projectMemberships,
+    projects: state.projects
+  });
+}
+
+function canCurrentUserWriteFeature({
+  state,
+  projectId,
+  feature
+}: {
+  state: Pick<VisualKanbanState, "users" | "currentUserId" | "permissions" | "projectMemberships" | "projects">;
+  projectId: string;
+  feature: FeatureKey;
+}) {
+  return canWrite(
+    getEffectiveRoleInState({
+      state,
+      projectId,
+      feature
+    })
+  );
+}
+
 export const useVisualKanbanStore = create<VisualKanbanState>()(
   persist(
     (set, get) => ({
       users: seedUsers,
       projects: seedProjects,
+      projectMemberships: seedProjectMemberships,
       permissions: seedPermissions,
       personalTodos: seedPersonalTodos,
       tasks: seedTasks,
@@ -395,6 +448,7 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       workspaceLanguage: DEFAULT_WORKSPACE_LANGUAGE,
       workspaceStyle: DEFAULT_WORKSPACE_STYLE,
       workspacePreferencesByAccountId: {},
+      recentProjectIdByAccountId: {},
 
       login: (username, password) => {
         const user = get().users.find((candidate) => candidate.username === username.trim());
@@ -507,6 +561,50 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
         return { ok: true };
       },
 
+      createUser: ({ username, displayName, password, baseRole }) => {
+        const state = get();
+        const actor = getCurrentUserFromState(state);
+        if (!actor || actor.baseRole !== "admin") {
+          return { ok: false, reason: "관리자만 사용자를 생성할 수 있습니다." };
+        }
+
+        const normalizedUsername = username.trim();
+        const normalizedDisplayName = displayName.trim();
+        const normalizedPassword = password.trim();
+
+        if (!normalizedUsername) {
+          return { ok: false, reason: "아이디를 입력해 주세요." };
+        }
+        if (!normalizedDisplayName) {
+          return { ok: false, reason: "이름을 입력해 주세요." };
+        }
+        if (!normalizedPassword) {
+          return { ok: false, reason: "초기 비밀번호를 입력해 주세요." };
+        }
+
+        const usernameTaken = state.users.some((user) => user.username.toLowerCase() === normalizedUsername.toLowerCase());
+        if (usernameTaken) {
+          return { ok: false, reason: "이미 사용 중인 아이디입니다." };
+        }
+
+        const userId = uid("user");
+        set((prevState) => ({
+          users: [
+            {
+              id: userId,
+              username: normalizedUsername,
+              displayName: normalizedDisplayName,
+              password: normalizedPassword,
+              mustChangePassword: true,
+              baseRole: normalizeBaseRole(baseRole)
+            },
+            ...prevState.users
+          ]
+        }));
+
+        return { ok: true, userId };
+      },
+
       addProject: (input) => {
         const currentUserId = get().currentUserId;
         if (!currentUserId) {
@@ -526,14 +624,26 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
 
         const projectId = uid("proj");
         const nextUpdatedAt = nowIso();
+        const ownerMembershipId = uid("project-member");
         set((state) => ({
           projects: [
             {
               id: projectId,
               name,
-              description: input.description.trim()
+              description: input.description.trim(),
+              ownerId: currentUserId
             },
             ...state.projects
+          ],
+          projectMemberships: [
+            {
+              id: ownerMembershipId,
+              projectId,
+              userId: currentUserId,
+              role: "owner",
+              updatedAt: nextUpdatedAt
+            },
+            ...state.projectMemberships.filter((membership) => !(membership.projectId === projectId && membership.userId === currentUserId))
           ],
           whiteboardScenes: [
             {
@@ -556,6 +666,189 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
         }));
 
         return { ok: true, projectId };
+      },
+
+      updateProject: (projectId, input) => {
+        const state = get();
+        const actor = getCurrentUserFromState(state);
+        if (!actor) {
+          return { ok: false, reason: "로그인이 필요합니다." };
+        }
+
+        const targetProject = state.projects.find((project) => project.id === projectId);
+        if (!targetProject) {
+          return { ok: false, reason: "프로젝트를 찾지 못했습니다." };
+        }
+
+        const actorMemberRole = canManageProjectMembers({
+          actor,
+          projectId,
+          projectMemberships: state.projectMemberships,
+          projects: state.projects
+        });
+
+        if (!actorMemberRole) {
+          return { ok: false, reason: "프로젝트를 수정할 권한이 없습니다." };
+        }
+
+        const nextName = input.name === undefined ? targetProject.name : input.name.trim();
+        if (!nextName) {
+          return { ok: false, reason: "프로젝트명을 입력해 주세요." };
+        }
+
+        const duplicated = state.projects.some(
+          (project) => project.id !== projectId && project.name.trim().toLowerCase() === nextName.toLowerCase()
+        );
+        if (duplicated) {
+          return { ok: false, reason: "같은 이름의 프로젝트가 이미 있습니다." };
+        }
+
+        const nextDescription = input.description === undefined ? targetProject.description : input.description.trim();
+        set((prevState) => ({
+          projects: prevState.projects.map((project) =>
+            project.id === projectId
+              ? {
+                  ...project,
+                  name: nextName,
+                  description: nextDescription
+                }
+              : project
+          )
+        }));
+
+        return { ok: true };
+      },
+
+      setProjectMemberRole: (projectId, userId, role: ProjectMemberRole) => {
+        const state = get();
+        const actor = getCurrentUserFromState(state);
+        if (!actor) {
+          return { ok: false, reason: "로그인이 필요합니다." };
+        }
+
+        const project = state.projects.find((item) => item.id === projectId);
+        if (!project) {
+          return { ok: false, reason: "프로젝트를 찾지 못했습니다." };
+        }
+
+        const targetUserExists = state.users.some((user) => user.id === userId);
+        if (!targetUserExists) {
+          return { ok: false, reason: "사용자를 찾지 못했습니다." };
+        }
+
+        const canMutateProjectMembers = canManageProjectMembers({
+          actor,
+          projectId,
+          projectMemberships: state.projectMemberships,
+          projects: state.projects
+        });
+
+        if (!canMutateProjectMembers) {
+          return { ok: false, reason: "프로젝트 구성원 권한을 변경할 수 없습니다." };
+        }
+
+        const updatedAt = nowIso();
+        const targetMembership = state.projectMemberships.find((membership) => membership.projectId === projectId && membership.userId === userId);
+        const demotedOwnerRole: ProjectMemberRole = "write";
+
+        set((prevState) => {
+          const nextProjects =
+            role === "owner"
+              ? prevState.projects.map((item) =>
+                  item.id === projectId
+                    ? {
+                        ...item,
+                        ownerId: userId
+                      }
+                    : item
+                )
+              : prevState.projects;
+
+          const nextProjectMemberships: VisualKanbanState["projectMemberships"] = targetMembership
+            ? prevState.projectMemberships.map((membership) =>
+                membership.id === targetMembership.id
+                  ? {
+                      ...membership,
+                      role,
+                      updatedAt
+                    }
+                  : role === "owner" && membership.projectId === projectId && membership.role === "owner"
+                    ? {
+                        ...membership,
+                        role: demotedOwnerRole,
+                        updatedAt
+                      }
+                    : membership
+              )
+            : [
+                {
+                  id: uid("project-member"),
+                  projectId,
+                  userId,
+                  role,
+                  updatedAt
+                },
+                ...prevState.projectMemberships.map((membership) =>
+                  role === "owner" && membership.projectId === projectId && membership.role === "owner"
+                    ? {
+                        ...membership,
+                        role: demotedOwnerRole,
+                        updatedAt
+                      }
+                    : membership
+                )
+              ];
+
+          return {
+            projects: nextProjects,
+            projectMemberships: nextProjectMemberships
+          };
+        });
+
+        return { ok: true };
+      },
+
+      deleteProject: (projectId) => {
+        const state = get();
+        const actor = getCurrentUserFromState(state);
+        if (!actor) {
+          return { ok: false, reason: "로그인이 필요합니다." };
+        }
+
+        const project = state.projects.find((item) => item.id === projectId);
+        if (!project) {
+          return { ok: false, reason: "프로젝트를 찾지 못했습니다." };
+        }
+
+        const actorMemberRole = resolveProjectMemberRole({
+          user: actor,
+          projectId,
+          projectMemberships: state.projectMemberships,
+          projects: state.projects
+        });
+
+        if (actorMemberRole !== "owner" && actorMemberRole !== "write") {
+          return { ok: false, reason: "프로젝트 참여자(Owner/Write)만 삭제할 수 있습니다." };
+        }
+
+        const relatedTaskIdSet = new Set(state.tasks.filter((task) => task.projectId === projectId).map((task) => task.id));
+
+        set((prevState) => ({
+          projects: prevState.projects.filter((item) => item.id !== projectId),
+          projectMemberships: prevState.projectMemberships.filter((membership) => membership.projectId !== projectId),
+          permissions: prevState.permissions.filter((permission) => permission.projectId !== projectId),
+          tasks: prevState.tasks.filter((task) => task.projectId !== projectId),
+          kanbanTasks: prevState.kanbanTasks.filter((task) => task.projectId !== projectId),
+          kanbanHistory: prevState.kanbanHistory.filter((historyItem) => historyItem.projectId !== projectId),
+          comments: prevState.comments.filter((comment) => !relatedTaskIdSet.has(comment.taskId)),
+          mindmapNodes: prevState.mindmapNodes.filter((node) => node.projectId !== projectId),
+          whiteboardScenes: prevState.whiteboardScenes.filter((scene) => scene.projectId !== projectId),
+          recentProjectIdByAccountId: Object.fromEntries(
+            Object.entries(prevState.recentProjectIdByAccountId).filter(([, recentProjectId]) => recentProjectId !== projectId)
+          )
+        }));
+
+        return { ok: true };
       },
 
       addTodo: (input: AddTodoInput) => {
@@ -710,14 +1003,24 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       },
 
       saveWhiteboardScene: (projectId: string, scene: WhiteboardSceneData) => {
-        const currentUserId = get().currentUserId;
+        const state = get();
+        const currentUserId = state.currentUserId;
         if (!currentUserId) {
           return { ok: false, reason: "로그인이 필요합니다." };
         }
 
-        const projectExists = get().projects.some((project) => project.id === projectId);
+        const projectExists = state.projects.some((project) => project.id === projectId);
         if (!projectExists) {
           return { ok: false, reason: "프로젝트를 찾지 못했습니다." };
+        }
+        if (
+          !canCurrentUserWriteFeature({
+            state,
+            projectId,
+            feature: "mindmap"
+          })
+        ) {
+          return { ok: false, reason: "화이트보드 편집 권한이 없습니다." };
         }
 
         const normalizedScene: WhiteboardSceneData = {
@@ -762,10 +1065,20 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       },
 
       addTask: (input) => {
-        const currentUserId = get().currentUserId;
+        const state = get();
+        const currentUserId = state.currentUserId;
         if (!currentUserId) return;
+        if (
+          !canCurrentUserWriteFeature({
+            state,
+            projectId: input.projectId,
+            feature: "gantt"
+          })
+        ) {
+          return;
+        }
 
-        const tasks = get().tasks;
+        const tasks = state.tasks;
         const normalizedParentTaskId =
           input.parentTaskId && tasks.some((task) => task.id === input.parentTaskId && task.projectId === input.projectId)
             ? input.parentTaskId
@@ -807,10 +1120,20 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       },
 
       addKanbanTask: (input) => {
-        const currentUserId = get().currentUserId;
+        const state = get();
+        const currentUserId = state.currentUserId;
         if (!currentUserId) return;
+        if (
+          !canCurrentUserWriteFeature({
+            state,
+            projectId: input.projectId,
+            feature: "kanban"
+          })
+        ) {
+          return;
+        }
 
-        const kanbanTasks = get().kanbanTasks;
+        const kanbanTasks = state.kanbanTasks;
         const normalizedParentTaskId =
           input.parentTaskId && kanbanTasks.some((task) => task.id === input.parentTaskId && task.projectId === input.projectId)
             ? input.parentTaskId
@@ -857,8 +1180,20 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       },
 
       updateKanbanTask: (taskId, patch: KanbanTaskPatch) => {
-        const currentUserId = get().currentUserId;
+        const state = get();
+        const currentUserId = state.currentUserId;
         if (!currentUserId) return;
+        const target = state.kanbanTasks.find((task) => task.id === taskId);
+        if (!target) return;
+        if (
+          !canCurrentUserWriteFeature({
+            state,
+            projectId: target.projectId,
+            feature: "kanban"
+          })
+        ) {
+          return;
+        }
 
         set((state) => ({
           kanbanTasks: state.kanbanTasks.map((task) => {
@@ -877,13 +1212,23 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       },
 
       moveKanbanTask: (taskId, nextStatus) => {
-        const currentUserId = get().currentUserId;
+        const state = get();
+        const currentUserId = state.currentUserId;
         if (!currentUserId) {
           return { ok: false, reason: "로그인이 필요합니다." };
         }
 
-        const target = get().kanbanTasks.find((task) => task.id === taskId);
+        const target = state.kanbanTasks.find((task) => task.id === taskId);
         if (!target) return { ok: false, reason: "태스크를 찾지 못했습니다." };
+        if (
+          !canCurrentUserWriteFeature({
+            state,
+            projectId: target.projectId,
+            feature: "kanban"
+          })
+        ) {
+          return { ok: false, reason: "칸반 편집 권한이 없습니다." };
+        }
 
         set((state) => ({
           kanbanTasks: state.kanbanTasks.map((task) => (task.id === taskId ? applyKanbanStage(task, nextStatus) : task))
@@ -893,14 +1238,24 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       },
 
       finalizeKanbanTask: (taskId) => {
-        const currentUserId = get().currentUserId;
+        const state = get();
+        const currentUserId = state.currentUserId;
         if (!currentUserId) {
           return { ok: false, reason: "로그인이 필요합니다." };
         }
 
-        const target = get().kanbanTasks.find((task) => task.id === taskId);
+        const target = state.kanbanTasks.find((task) => task.id === taskId);
         if (!target) {
           return { ok: false, reason: "태스크를 찾지 못했습니다." };
+        }
+        if (
+          !canCurrentUserWriteFeature({
+            state,
+            projectId: target.projectId,
+            feature: "kanban"
+          })
+        ) {
+          return { ok: false, reason: "칸반 편집 권한이 없습니다." };
         }
         if (target.status !== "done") {
           return { ok: false, reason: "Done 상태에서만 보관할 수 있습니다." };
@@ -930,14 +1285,24 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       },
 
       restoreKanbanTask: (historyId) => {
-        const currentUserId = get().currentUserId;
+        const state = get();
+        const currentUserId = state.currentUserId;
         if (!currentUserId) {
           return { ok: false, reason: "로그인이 필요합니다." };
         }
 
-        const target = get().kanbanHistory.find((item) => item.id === historyId);
+        const target = state.kanbanHistory.find((item) => item.id === historyId);
         if (!target) {
           return { ok: false, reason: "보관된 태스크를 찾지 못했습니다." };
+        }
+        if (
+          !canCurrentUserWriteFeature({
+            state,
+            projectId: target.projectId,
+            feature: "kanban"
+          })
+        ) {
+          return { ok: false, reason: "칸반 편집 권한이 없습니다." };
         }
 
         set((state) => {
@@ -964,13 +1329,23 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       },
 
       moveTask: (taskId, nextStatus: TaskStatus) => {
-        const currentUserId = get().currentUserId;
+        const state = get();
+        const currentUserId = state.currentUserId;
         if (!currentUserId) {
           return { ok: false, reason: "로그인이 필요합니다." };
         }
 
-        const target = get().tasks.find((task) => task.id === taskId);
+        const target = state.tasks.find((task) => task.id === taskId);
         if (!target) return { ok: false, reason: "태스크를 찾지 못했습니다." };
+        if (
+          !canCurrentUserWriteFeature({
+            state,
+            projectId: target.projectId,
+            feature: "gantt"
+          })
+        ) {
+          return { ok: false, reason: "간트 편집 권한이 없습니다." };
+        }
 
         set((state) => ({
           tasks: state.tasks.map((task) => (task.id === taskId ? { ...task, status: nextStatus, updatedAt: nowIso() } : task)),
@@ -984,8 +1359,20 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       },
 
       updateTask: (taskId, patch) => {
-        const currentUserId = get().currentUserId;
+        const state = get();
+        const currentUserId = state.currentUserId;
         if (!currentUserId) return;
+        const target = state.tasks.find((task) => task.id === taskId);
+        if (!target) return;
+        if (
+          !canCurrentUserWriteFeature({
+            state,
+            projectId: target.projectId,
+            feature: "gantt"
+          })
+        ) {
+          return;
+        }
 
         set((state) => ({
           tasks: state.tasks.map((task) => (task.id === taskId ? { ...task, ...patch, updatedAt: nowIso() } : task))
@@ -993,17 +1380,27 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       },
 
       removeTask: (taskId) => {
-        const currentUserId = get().currentUserId;
+        const state = get();
+        const currentUserId = state.currentUserId;
         if (!currentUserId) {
           return { ok: false, reason: "로그인이 필요합니다." };
         }
 
-        const target = get().tasks.find((task) => task.id === taskId);
+        const target = state.tasks.find((task) => task.id === taskId);
         if (!target) {
           return { ok: false, reason: "태스크를 찾지 못했습니다." };
         }
+        if (
+          !canCurrentUserWriteFeature({
+            state,
+            projectId: target.projectId,
+            feature: "gantt"
+          })
+        ) {
+          return { ok: false, reason: "간트 편집 권한이 없습니다." };
+        }
 
-        const removedTaskIds = collectTaskAndDescendantIds(get().tasks, taskId);
+        const removedTaskIds = collectTaskAndDescendantIds(state.tasks, taskId);
         const removedTaskIdSet = new Set(removedTaskIds);
 
         set((state) => ({
@@ -1023,12 +1420,22 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       },
 
       addComment: (taskId, body) => {
-        const currentUserId = get().currentUserId;
+        const state = get();
+        const currentUserId = state.currentUserId;
         if (!currentUserId) return { ok: false, reason: "로그인이 필요합니다." };
         if (!body.trim()) return { ok: false, reason: "댓글 내용을 입력하세요." };
 
-        const task = get().tasks.find((item) => item.id === taskId);
+        const task = state.tasks.find((item) => item.id === taskId);
         if (!task) return { ok: false, reason: "태스크를 찾지 못했습니다." };
+        if (
+          !canCurrentUserWriteFeature({
+            state,
+            projectId: task.projectId,
+            feature: "gantt"
+          })
+        ) {
+          return { ok: false, reason: "댓글 작성 권한이 없습니다." };
+        }
 
         set((state) => ({
           comments: [
@@ -1051,8 +1458,17 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       },
 
       setPermission: (projectId, feature, userId, role: AccessRole) => {
-        const actor = get().currentUserId;
+        const state = get();
+        const actor = getCurrentUserFromState(state);
         if (!actor) return;
+
+        const canMutatePermission = canManageProjectMembers({
+          actor,
+          projectId,
+          projectMemberships: state.projectMemberships,
+          projects: state.projects
+        });
+        if (!canMutatePermission) return;
 
         set((state) => {
           const existing = state.permissions.find(
@@ -1085,7 +1501,7 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
             permissions,
             activities: [
               makeActivity({
-                actorId: actor,
+                actorId: actor.id,
                 type: "permission_change",
                 message: `${feature} 권한 변경: ${userId} -> ${role}`
               }),
@@ -1193,6 +1609,28 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
             }
           };
         });
+      },
+
+      setRecentProjectForCurrentAccount: (projectId) => {
+        const currentUserId = get().currentUserId;
+        const normalizedProjectId = projectId.trim();
+
+        if (!currentUserId || !normalizedProjectId) {
+          return;
+        }
+
+        const state = get();
+        const projectExists = state.projects.some((project) => project.id === normalizedProjectId);
+        if (!projectExists || state.recentProjectIdByAccountId[currentUserId] === normalizedProjectId) {
+          return;
+        }
+
+        set((prevState) => ({
+          recentProjectIdByAccountId: {
+            ...prevState.recentProjectIdByAccountId,
+            [currentUserId]: normalizedProjectId
+          }
+        }));
       }
     }),
     {
@@ -1201,6 +1639,7 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       partialize: (state) => ({
         users: state.users,
         projects: state.projects,
+        projectMemberships: state.projectMemberships,
         permissions: state.permissions,
         personalTodos: state.personalTodos,
         tasks: state.tasks,
@@ -1215,7 +1654,8 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
         sessionCheckedAt: state.sessionCheckedAt,
         workspaceLanguage: state.workspaceLanguage,
         workspaceStyle: state.workspaceStyle,
-        workspacePreferencesByAccountId: state.workspacePreferencesByAccountId
+        workspacePreferencesByAccountId: state.workspacePreferencesByAccountId,
+        recentProjectIdByAccountId: state.recentProjectIdByAccountId
       })
     }
   )
@@ -1230,14 +1670,25 @@ export function getEffectiveRoleForFeature({
   user,
   projectId,
   feature,
-  permissions
+  permissions,
+  projectMemberships,
+  projects
 }: {
   user: User | null;
   projectId: string;
   feature: FeatureKey;
   permissions: VisualKanbanState["permissions"];
+  projectMemberships: VisualKanbanState["projectMemberships"];
+  projects: VisualKanbanState["projects"];
 }) {
-  return resolveRole({ user, projectId, feature, assignments: permissions });
+  return resolveRole({
+    user,
+    projectId,
+    feature,
+    assignments: permissions,
+    projectMemberships,
+    projects
+  });
 }
 
 export function getVisibleTasks({

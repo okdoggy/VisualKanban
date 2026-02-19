@@ -3,30 +3,21 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { MessageSquare, SearchIcon, SquareKanban, UserRound, Wrench } from "lucide-react";
-import { FeatureAccessDenied } from "@/components/app/feature-access";
-import { PageHeader } from "@/components/app/page-header";
+import { CalendarRange, ListTodo, SearchIcon, SquareKanban } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { canRead, canSeeTask, type EffectiveRole } from "@/lib/permissions/roles";
-import { getCurrentUser, getEffectiveRoleForFeature, useVisualKanbanStore } from "@/lib/store";
+import { getCurrentUser, getEffectiveRoleForFeature, getVisiblePersonalTodos, useVisualKanbanStore } from "@/lib/store";
 import { useShallow } from "zustand/react/shallow";
 
 const neoCard =
   "rounded-2xl border-2 border-zinc-900 bg-white shadow-[4px_4px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[4px_4px_0_0_rgb(0,0,0)]";
 const neoButton =
   "border-2 border-zinc-900 shadow-[2px_2px_0_0_rgb(24,24,27)] transition hover:-translate-y-0.5 hover:shadow-none dark:border-zinc-100 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]";
-
-type SearchType = "tasks" | "comments" | "users" | "projects";
-
-const typeOptions: { key: SearchType; label: string }[] = [
-  { key: "tasks", label: "Tasks" },
-  { key: "comments", label: "Comments" },
-  { key: "users", label: "Users" },
-  { key: "projects", label: "Projects" }
-];
+const resultItemClass =
+  "block rounded-lg border-2 border-zinc-900 bg-zinc-100 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] transition hover:-translate-y-0.5 hover:shadow-none dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]";
 
 export default function SearchPage() {
   const router = useRouter();
@@ -35,16 +26,19 @@ export default function SearchPage() {
   const urlQuery = searchParams.get("q") ?? "";
 
   const [query, setQuery] = useState(urlQuery);
-  const [enabledTypes, setEnabledTypes] = useState<SearchType[]>(["tasks", "comments", "users", "projects"]);
 
-  const { users, projects, tasks, comments, permissions, currentUserId } = useVisualKanbanStore(useShallow((state) => ({
-    users: state.users,
-    projects: state.projects,
-    tasks: state.tasks,
-    comments: state.comments,
-    permissions: state.permissions,
-    currentUserId: state.currentUserId
-  })));
+  const { users, projects, projectMemberships, tasks, kanbanTasks, personalTodos, permissions, currentUserId } = useVisualKanbanStore(
+    useShallow((state) => ({
+      users: state.users,
+      projects: state.projects,
+      projectMemberships: state.projectMemberships,
+      tasks: state.tasks,
+      kanbanTasks: state.kanbanTasks,
+      personalTodos: state.personalTodos,
+      permissions: state.permissions,
+      currentUserId: state.currentUserId
+    }))
+  );
 
   useEffect(() => {
     setQuery(urlQuery);
@@ -52,7 +46,7 @@ export default function SearchPage() {
 
   const currentUser = useMemo(() => getCurrentUser(users, currentUserId), [users, currentUserId]);
 
-  const projectRoles = useMemo(() => {
+  const kanbanRolesByProject = useMemo(() => {
     const roles = new Map<string, EffectiveRole>();
     for (const project of projects) {
       roles.set(
@@ -60,82 +54,104 @@ export default function SearchPage() {
         getEffectiveRoleForFeature({
           user: currentUser,
           projectId: project.id,
-          feature: "search",
-          permissions
+          feature: "kanban",
+          permissions,
+          projectMemberships,
+          projects
         })
       );
     }
     return roles;
-  }, [currentUser, permissions, projects]);
+  }, [currentUser, permissions, projectMemberships, projects]);
 
-  const readableProjectIds = useMemo(
-    () => new Set([...projectRoles.entries()].filter(([, role]) => canRead(role)).map(([projectId]) => projectId)),
-    [projectRoles]
-  );
+  const ganttRolesByProject = useMemo(() => {
+    const roles = new Map<string, EffectiveRole>();
+    for (const project of projects) {
+      roles.set(
+        project.id,
+        getEffectiveRoleForFeature({
+          user: currentUser,
+          projectId: project.id,
+          feature: "gantt",
+          permissions,
+          projectMemberships,
+          projects
+        })
+      );
+    }
+    return roles;
+  }, [currentUser, permissions, projectMemberships, projects]);
 
-  const primaryRole = useMemo(() => {
-    const primaryProject = projects[0];
-    if (!primaryProject) return "none";
-    return projectRoles.get(primaryProject.id) ?? "none";
-  }, [projectRoles, projects]);
+  const projectNameById = useMemo(() => new Map(projects.map((project) => [project.id, project.name])), [projects]);
 
-  const visibleTasks = useMemo(
+  const visibleTodos = useMemo(
     () =>
-      tasks
-        .filter((task) => readableProjectIds.has(task.projectId))
-        .filter((task) => canSeeTask(currentUser, task, projectRoles.get(task.projectId) ?? "none")),
-    [currentUser, projectRoles, readableProjectIds, tasks]
+      getVisiblePersonalTodos({
+        todos: personalTodos,
+        currentUserId
+      }),
+    [currentUserId, personalTodos]
   );
 
-  const visibleTaskMap = useMemo(() => new Map(visibleTasks.map((task) => [task.id, task])), [visibleTasks]);
-  const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
+  const visibleKanbanTasks = useMemo(() => {
+    if (!currentUser) return [];
+
+    return kanbanTasks.filter((task) => {
+      const role = kanbanRolesByProject.get(task.projectId) ?? "none";
+      if (!canRead(role)) return false;
+      return canSeeTask(currentUser, task, role);
+    });
+  }, [currentUser, kanbanRolesByProject, kanbanTasks]);
+
+  const visibleGanttTasks = useMemo(() => {
+    if (!currentUser) return [];
+
+    return tasks.filter((task) => {
+      const role = ganttRolesByProject.get(task.projectId) ?? "none";
+      if (!canRead(role)) return false;
+      return canSeeTask(currentUser, task, role);
+    });
+  }, [currentUser, ganttRolesByProject, tasks]);
 
   const needle = query.trim().toLowerCase();
 
-  const taskResults = useMemo(() => {
+  const todoResults = useMemo(() => {
     if (!needle) return [];
-    return visibleTasks
-      .filter((task) => task.title.toLowerCase().includes(needle) || task.description.toLowerCase().includes(needle) || task.tags.some((tag) => tag.toLowerCase().includes(needle)))
+    return visibleTodos
+      .filter((todo) => todo.title.toLowerCase().includes(needle) || todo.description.toLowerCase().includes(needle))
+      .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
       .slice(0, 15);
-  }, [needle, visibleTasks]);
+  }, [needle, visibleTodos]);
 
-  const commentResults = useMemo(() => {
+  const kanbanResults = useMemo(() => {
     if (!needle) return [];
-    return comments
-      .filter((comment) => {
-        const task = visibleTaskMap.get(comment.taskId);
-        if (!task) return false;
-
-        const author = usersById.get(comment.authorId);
+    return visibleKanbanTasks
+      .filter((task) => {
         return (
-          comment.body.toLowerCase().includes(needle) ||
-          (author?.displayName.toLowerCase().includes(needle) ?? false) ||
-          task.title.toLowerCase().includes(needle)
+          task.title.toLowerCase().includes(needle) ||
+          task.description.toLowerCase().includes(needle) ||
+          task.tags.some((tag) => tag.toLowerCase().includes(needle))
         );
       })
-      .slice(0, 12);
-  }, [comments, needle, usersById, visibleTaskMap]);
+      .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
+      .slice(0, 15);
+  }, [needle, visibleKanbanTasks]);
 
-  const userResults = useMemo(() => {
+  const ganttResults = useMemo(() => {
     if (!needle) return [];
-    return users
-      .filter((user) => user.displayName.toLowerCase().includes(needle) || user.username.toLowerCase().includes(needle))
-      .slice(0, 10);
-  }, [needle, users]);
+    return visibleGanttTasks
+      .filter((task) => {
+        return (
+          task.title.toLowerCase().includes(needle) ||
+          task.description.toLowerCase().includes(needle) ||
+          task.tags.some((tag) => tag.toLowerCase().includes(needle))
+        );
+      })
+      .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
+      .slice(0, 15);
+  }, [needle, visibleGanttTasks]);
 
-  const projectResults = useMemo(() => {
-    if (!needle) return [];
-    return projects
-      .filter((project) => readableProjectIds.has(project.id))
-      .filter((project) => project.name.toLowerCase().includes(needle) || project.description.toLowerCase().includes(needle))
-      .slice(0, 8);
-  }, [needle, projects, readableProjectIds]);
-
-  const totalResults =
-    (enabledTypes.includes("tasks") ? taskResults.length : 0) +
-    (enabledTypes.includes("comments") ? commentResults.length : 0) +
-    (enabledTypes.includes("users") ? userResults.length : 0) +
-    (enabledTypes.includes("projects") ? projectResults.length : 0);
+  const totalResults = todoResults.length + kanbanResults.length + ganttResults.length;
 
   const submitSearch = (event: React.FormEvent) => {
     event.preventDefault();
@@ -149,45 +165,17 @@ export default function SearchPage() {
     router.replace(`/app/search?q=${encodeURIComponent(trimmed)}`);
   };
 
-  const toggleType = (type: SearchType) => {
-    setEnabledTypes((prev) => (prev.includes(type) ? prev.filter((item) => item !== type) : [...prev, type]));
-  };
-
   if (!currentUser) {
     return (
       <Card className={`${neoCard} p-8`}>
         <CardTitle>Loading search index…</CardTitle>
-        <CardDescription className="mt-2">Gathering tasks, discussions, people, and projects.</CardDescription>
+        <CardDescription className="mt-2">Gathering your To do, Kanban, and Gantt content.</CardDescription>
       </Card>
-    );
-  }
-
-  if (projects.length === 0) {
-    return (
-      <Card className={`${neoCard} p-8`}>
-        <CardTitle>No project connected</CardTitle>
-        <CardDescription className="mt-2">Search becomes available when at least one project exists.</CardDescription>
-      </Card>
-    );
-  }
-
-  if (readableProjectIds.size === 0) {
-    return (
-      <>
-        <PageHeader title="Search" description="Unified lookup across tasks, comments, users, and projects" role={primaryRole.toUpperCase()} />
-        <FeatureAccessDenied feature="Search" />
-      </>
     );
   }
 
   return (
     <div className="space-y-4">
-      <PageHeader
-        title="Search"
-        description="Find tasks, comments, teammates, and projects with a single query."
-        role={primaryRole.toUpperCase()}
-      />
-
       <Card className={neoCard}>
         <form onSubmit={submitSearch} className="space-y-3">
           <div className="flex gap-2">
@@ -197,7 +185,7 @@ export default function SearchPage() {
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 className="border-2 border-zinc-900 pl-8 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
-                placeholder="Try: dashboard, blocker, @admin…"
+                placeholder="Search To do, Kanban, and Gantt..."
               />
             </div>
             <Button className={neoButton} type="submit">
@@ -205,19 +193,7 @@ export default function SearchPage() {
             </Button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {typeOptions.map((typeOption) => (
-              <Button
-                key={typeOption.key}
-                className={neoButton}
-                size="sm"
-                variant={enabledTypes.includes(typeOption.key) ? "default" : "outline"}
-                onClick={() => toggleType(typeOption.key)}
-                type="button"
-              >
-                {typeOption.label}
-              </Button>
-            ))}
+          <div className="flex items-center gap-2">
             <Badge variant="info">{totalResults} matches</Badge>
           </div>
         </form>
@@ -226,130 +202,84 @@ export default function SearchPage() {
       {!needle ? (
         <Card className={`${neoCard} p-8 text-center`}>
           <CardTitle>Start typing to search</CardTitle>
-          <CardDescription className="mt-2">Use global keywords, task IDs, @mentions, or project names for faster navigation.</CardDescription>
+          <CardDescription className="mt-2">Search is scoped to your To do, readable Kanban tasks, and readable Gantt tasks.</CardDescription>
         </Card>
       ) : totalResults === 0 ? (
         <Card className={`${neoCard} p-8 text-center`}>
           <CardTitle>No results for “{query.trim()}”</CardTitle>
-          <CardDescription className="mt-2">Try broader terms or re-enable more result types.</CardDescription>
+          <CardDescription className="mt-2">Try broader keywords for To do, Kanban, or Gantt content.</CardDescription>
         </Card>
       ) : (
-        <div className="grid gap-4 xl:grid-cols-2">
-          {enabledTypes.includes("tasks") ? (
-            <Card className={neoCard}>
-              <div className="mb-3 flex items-center gap-2">
-                <Wrench className="h-4 w-4 text-sky-500" />
-                <CardTitle>Tasks</CardTitle>
-                <Badge>{taskResults.length}</Badge>
-              </div>
-              {taskResults.length === 0 ? (
-                <CardDescription>No task matches.</CardDescription>
-              ) : (
-                <ul className="space-y-2">
-                  {taskResults.map((task) => (
-                    <li key={task.id}>
-                      <Link
-                        href={`/app/projects/${task.projectId}/tasks/${task.id}`}
-                        className="block rounded-lg border-2 border-zinc-900 bg-zinc-100 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] transition hover:-translate-y-0.5 hover:shadow-none dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
-                      >
-                        <p className="text-sm font-medium">{task.title}</p>
-                        <p className="mt-1 text-xs text-zinc-500">{task.description}</p>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Card>
-          ) : null}
+        <div className="grid gap-4 xl:grid-cols-3">
+          <Card className={neoCard}>
+            <div className="mb-3 flex items-center gap-2">
+              <ListTodo className="h-4 w-4 text-emerald-500" />
+              <CardTitle>To do</CardTitle>
+              <Badge>{todoResults.length}</Badge>
+            </div>
+            {todoResults.length === 0 ? (
+              <CardDescription>No To do matches.</CardDescription>
+            ) : (
+              <ul className="space-y-2">
+                {todoResults.map((todo) => (
+                  <li key={todo.id}>
+                    <Link href="/app/todo" className={resultItemClass}>
+                      <p className="text-sm font-medium">{todo.title}</p>
+                      <p className="mt-1 text-xs text-zinc-500">{todo.description || "No description"}</p>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
 
-          {enabledTypes.includes("comments") ? (
-            <Card className={neoCard}>
-              <div className="mb-3 flex items-center gap-2">
-                <MessageSquare className="h-4 w-4 text-violet-500" />
-                <CardTitle>Comments</CardTitle>
-                <Badge>{commentResults.length}</Badge>
-              </div>
-              {commentResults.length === 0 ? (
-                <CardDescription>No comment matches.</CardDescription>
-              ) : (
-                <ul className="space-y-2">
-                  {commentResults.map((comment) => {
-                    const task = visibleTaskMap.get(comment.taskId);
-                    const author = usersById.get(comment.authorId);
-                    if (!task) return null;
+          <Card className={neoCard}>
+            <div className="mb-3 flex items-center gap-2">
+              <SquareKanban className="h-4 w-4 text-sky-500" />
+              <CardTitle>Kanban</CardTitle>
+              <Badge>{kanbanResults.length}</Badge>
+            </div>
+            {kanbanResults.length === 0 ? (
+              <CardDescription>No Kanban matches.</CardDescription>
+            ) : (
+              <ul className="space-y-2">
+                {kanbanResults.map((task) => (
+                  <li key={task.id}>
+                    <Link href={`/app/projects/${task.projectId}/kanban`} className={resultItemClass}>
+                      <p className="text-sm font-medium">{task.title}</p>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        {(projectNameById.get(task.projectId) ?? task.projectId) + " · " + task.description}
+                      </p>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
 
-                    return (
-                      <li key={comment.id}>
-                        <Link
-                          href={`/app/projects/${task.projectId}/tasks/${task.id}?comment=${comment.id}`}
-                          className="block rounded-lg border-2 border-zinc-900 bg-zinc-100 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] transition hover:-translate-y-0.5 hover:shadow-none dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
-                        >
-                          <p className="line-clamp-2 text-sm">{comment.body}</p>
-                          <p className="mt-1 text-xs text-zinc-500">
-                            {author?.displayName ?? "Unknown"} · {task.title}
-                          </p>
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </Card>
-          ) : null}
-
-          {enabledTypes.includes("users") ? (
-            <Card className={neoCard}>
-              <div className="mb-3 flex items-center gap-2">
-                <UserRound className="h-4 w-4 text-emerald-500" />
-                <CardTitle>Users</CardTitle>
-                <Badge>{userResults.length}</Badge>
-              </div>
-              {userResults.length === 0 ? (
-                <CardDescription>No user matches.</CardDescription>
-              ) : (
-                <ul className="space-y-2">
-                  {userResults.map((user) => (
-                    <li key={user.id}>
-                      <Link
-                        href={`/app/admin/users?user=${user.id}`}
-                        className="block rounded-lg border-2 border-zinc-900 bg-zinc-100 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] transition hover:-translate-y-0.5 hover:shadow-none dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
-                      >
-                        <p className="text-sm font-medium">{user.displayName}</p>
-                        <p className="text-xs text-zinc-500">@{user.username} · {user.baseRole.toUpperCase()}</p>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Card>
-          ) : null}
-
-          {enabledTypes.includes("projects") ? (
-            <Card className={neoCard}>
-              <div className="mb-3 flex items-center gap-2">
-                <SquareKanban className="h-4 w-4 text-amber-500" />
-                <CardTitle>Projects</CardTitle>
-                <Badge>{projectResults.length}</Badge>
-              </div>
-              {projectResults.length === 0 ? (
-                <CardDescription>No project matches.</CardDescription>
-              ) : (
-                <ul className="space-y-2">
-                  {projectResults.map((project) => (
-                    <li key={project.id}>
-                      <Link
-                        href={`/app/projects/${project.id}/gantt`}
-                        className="block rounded-lg border-2 border-zinc-900 bg-zinc-100 p-3 shadow-[2px_2px_0_0_rgb(24,24,27)] transition hover:-translate-y-0.5 hover:shadow-none dark:border-zinc-100 dark:bg-zinc-800/60 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
-                      >
-                        <p className="text-sm font-medium">{project.name}</p>
-                        <p className="text-xs text-zinc-500">{project.description}</p>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Card>
-          ) : null}
+          <Card className={neoCard}>
+            <div className="mb-3 flex items-center gap-2">
+              <CalendarRange className="h-4 w-4 text-violet-500" />
+              <CardTitle>Gantt</CardTitle>
+              <Badge>{ganttResults.length}</Badge>
+            </div>
+            {ganttResults.length === 0 ? (
+              <CardDescription>No Gantt matches.</CardDescription>
+            ) : (
+              <ul className="space-y-2">
+                {ganttResults.map((task) => (
+                  <li key={task.id}>
+                    <Link href={`/app/projects/${task.projectId}/tasks/${task.id}`} className={resultItemClass}>
+                      <p className="text-sm font-medium">{task.title}</p>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        {(projectNameById.get(task.projectId) ?? task.projectId) + " · " + task.description}
+                      </p>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
         </div>
       )}
     </div>

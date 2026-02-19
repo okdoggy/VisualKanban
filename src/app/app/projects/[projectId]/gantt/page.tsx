@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { DragEvent as ReactDragEvent, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   CheckSquare2,
@@ -9,7 +9,6 @@ import {
   CirclePlus,
   FileSpreadsheet,
   FolderKanban,
-  GripHorizontal,
   Search,
   Square,
   Trash2,
@@ -19,20 +18,20 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { FeatureAccessDenied } from "@/components/app/feature-access";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { UserAutocompleteMultiSelect } from "@/components/ui/user-autocomplete";
 import { canRead, canWrite } from "@/lib/permissions/roles";
 import { getCurrentUser, getEffectiveRoleForFeature, getVisibleTasks, useVisualKanbanStore } from "@/lib/store";
-import type { Task, TaskStatus } from "@/lib/types";
+import type { Task } from "@/lib/types";
 import { cn } from "@/lib/utils/cn";
 import { useShallow } from "zustand/react/shallow";
 
-type StatusFilter = "all" | TaskStatus;
 type TimeScale = "day" | "week" | "month" | "quarter";
 type DragMode = "move" | "resize-start" | "resize-end";
 type AssignmentViewMode = "all" | "assignee" | "assignee_or_participant";
+type TreeDropPosition = "before" | "inside" | "after";
 
 type TimelineColumn = {
   index: number;
@@ -68,6 +67,7 @@ type DragState = {
   pointerId: number;
   mode: DragMode;
   originX: number;
+  originY: number;
   originalStart: Date;
   originalEnd: Date;
 };
@@ -91,8 +91,7 @@ type ExtendedTaskPatch = Partial<Task> & {
 type DetailFormState = {
   title: string;
   description: string;
-  assigneeId: string;
-  status: TaskStatus;
+  participantIds: string[];
   visibility: Task["visibility"];
   startDate: string;
   endDate: string;
@@ -109,24 +108,7 @@ const timeScaleMeta: Record<TimeScale, { label: string; columns: number; columnW
   quarter: { label: "분기", columns: 8, columnWidth: 172 }
 };
 const timelineColumnCountBounds = { min: 4, max: 48 } as const;
-
-const statusMeta: Record<TaskStatus, { label: string; badge: "warning" | "info" | "success"; defaultColor: string }> = {
-  backlog: {
-    label: "백로그",
-    badge: "warning",
-    defaultColor: "#f59e0b"
-  },
-  in_progress: {
-    label: "진행 중",
-    badge: "info",
-    defaultColor: "#0ea5e9"
-  },
-  done: {
-    label: "완료",
-    badge: "success",
-    defaultColor: "#10b981"
-  }
-};
+const defaultTaskColor = "#3b82f6";
 
 const visibilityLabel: Record<Task["visibility"], string> = {
   shared: "공개",
@@ -438,7 +420,7 @@ function resolveTaskColor(task: Task, parentColor: string | null) {
   if (parentColor) {
     return { color: lightenHex(parentColor, 0.28), explicitColor: false };
   }
-  return { color: statusMeta[task.status].defaultColor, explicitColor: false };
+  return { color: defaultTaskColor, explicitColor: false };
 }
 
 function patchColorTag(tags: string[] | undefined, color: string) {
@@ -523,6 +505,7 @@ function PopupShell({
   onClose,
   title,
   description,
+  editableTitle,
   widthClassName = "max-w-4xl",
   children
 }: {
@@ -530,9 +513,17 @@ function PopupShell({
   onClose: () => void;
   title: string;
   description?: string;
+  editableTitle?: {
+    value: string;
+    onChange: (nextValue: string) => void;
+    disabled?: boolean;
+    placeholder?: string;
+  };
   widthClassName?: string;
   children: ReactNode;
 }) {
+  const titleId = useId();
+  const descriptionId = description ? `${titleId}-description` : undefined;
   if (!open) return null;
 
   return (
@@ -544,13 +535,35 @@ function PopupShell({
         aria-label={`${title} 닫기`}
       />
 
-      <div className={cn(`relative w-full ${neoCard}`, widthClassName)}>
-        <div className="flex items-start justify-between border-b-2 border-zinc-900 px-4 py-3 dark:border-zinc-100">
-          <div className="min-w-0">
-            <h2 className="truncate text-base font-semibold">{title}</h2>
-            {description ? <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{description}</p> : null}
+      <div
+        className={cn(`relative w-full ${neoCard}`, widthClassName)}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+      >
+        <div className="flex items-start gap-3 border-b-2 border-zinc-900 px-4 py-3 dark:border-zinc-100">
+          <div className="min-w-0 flex-1">
+            <h2 id={titleId} className={cn("truncate text-base font-semibold", editableTitle ? "sr-only" : "")}>
+              {title}
+            </h2>
+            {editableTitle ? (
+              <Input
+                value={editableTitle.value}
+                onChange={(event) => editableTitle.onChange(event.target.value)}
+                placeholder={editableTitle.placeholder ?? "제목"}
+                disabled={editableTitle.disabled}
+                className="h-10 w-full border-zinc-900 bg-white text-base font-semibold dark:border-zinc-100 dark:bg-zinc-900"
+                aria-label="작업 제목"
+              />
+            ) : null}
+            {description ? (
+              <p id={descriptionId} className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                {description}
+              </p>
+            ) : null}
           </div>
-          <Button type="button" size="icon" variant="ghost" onClick={onClose} className={neoButton}>
+          <Button type="button" size="icon" variant="ghost" onClick={onClose} className={cn(neoButton, "shrink-0")} aria-label={`${title} 닫기`}>
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -570,7 +583,6 @@ export default function GanttPage() {
   const params = useParams<{ projectId: string }>();
   const projectId = readParam(params.projectId);
 
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [assignmentViewMode, setAssignmentViewMode] = useState<AssignmentViewMode>("all");
   const [highlightMyAssignments, setHighlightMyAssignments] = useState(false);
@@ -584,6 +596,8 @@ export default function GanttPage() {
   const [windowStart, setWindowStart] = useState<Date>(() => startOfWeek(new Date()));
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [treeDragTaskId, setTreeDragTaskId] = useState<string | null>(null);
+  const [treeDropTarget, setTreeDropTarget] = useState<{ taskId: string; position: TreeDropPosition } | null>(null);
   const [columnResizeState, setColumnResizeState] = useState<ColumnResizeState | null>(null);
   const [leftColumnWidth, setLeftColumnWidth] = useState(430);
   const [searchPopupOpen, setSearchPopupOpen] = useState(false);
@@ -593,15 +607,14 @@ export default function GanttPage() {
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
   const [detailForm, setDetailForm] = useState<DetailFormState | null>(null);
   const dragDeltaRef = useRef(0);
+  const barDragIntentRef = useRef<"pending" | "timeline" | "tree">("pending");
 
   const [newTaskForm, setNewTaskForm] = useState(() => ({
     title: "",
-    assigneeId: "",
+    description: "",
     participantIds: [] as string[],
-    parentTaskId: "",
     startDate: toDateInputValue(new Date()),
-    durationDays: 14,
-    status: "backlog" as TaskStatus,
+    endDate: toDateInputValue(addDays(new Date(), 13)),
     visibility: "shared" as Task["visibility"],
     colorMode: "manual" as "auto" | "manual",
     color: "#3b82f6"
@@ -612,11 +625,12 @@ export default function GanttPage() {
     description: ""
   }));
 
-  const { users, currentUserId, projects, permissions, tasks, addProject, addTask, updateTask, removeTask } = useVisualKanbanStore(
+  const { users, currentUserId, projects, projectMemberships, permissions, tasks, addProject, addTask, updateTask, removeTask } = useVisualKanbanStore(
     useShallow((state) => ({
       users: state.users,
       currentUserId: state.currentUserId,
       projects: state.projects,
+      projectMemberships: state.projectMemberships,
       permissions: state.permissions,
       tasks: state.tasks,
       addProject: state.addProject,
@@ -634,9 +648,11 @@ export default function GanttPage() {
         user: currentUser,
         projectId,
         feature: "gantt",
-        permissions
+        permissions,
+        projectMemberships,
+        projects
       }),
-    [currentUser, permissions, projectId]
+    [currentUser, permissions, projectId, projectMemberships, projects]
   );
 
   const writable = canWrite(ganttRole);
@@ -649,19 +665,32 @@ export default function GanttPage() {
   }, [currentUser, ganttRole, projectId, tasks]);
 
   const projectTaskById = useMemo(() => new Map(projectTasks.map((task) => [task.id, task])), [projectTasks]);
+  const childIdsByParentId = useMemo(() => {
+    const map = new Map<string, string[]>();
+
+    for (const task of projectTasks) {
+      const parentId = readTaskParentId(task);
+      if (!parentId) continue;
+      const siblings = map.get(parentId);
+      if (siblings) {
+        siblings.push(task.id);
+      } else {
+        map.set(parentId, [task.id]);
+      }
+    }
+
+    return map;
+  }, [projectTasks]);
 
   const userMap = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
-
-  const statusCounts = useMemo(
+  const userAutocompleteOptions = useMemo(
     () =>
-      projectTasks.reduce<Record<TaskStatus, number>>(
-        (acc, task) => {
-          acc[task.status] += 1;
-          return acc;
-        },
-        { backlog: 0, in_progress: 0, done: 0 }
-      ),
-    [projectTasks]
+      users.map((user) => ({
+        id: user.id,
+        label: user.displayName,
+        secondaryLabel: `@${user.username}`
+      })),
+    [users]
   );
 
   const isAssignedToCurrentUser = (task: Task, participants?: string[]) => {
@@ -674,7 +703,6 @@ export default function GanttPage() {
     const needle = searchQuery.trim().toLowerCase();
 
     return projectTasks
-      .filter((task) => (statusFilter === "all" ? true : task.status === statusFilter))
       .filter((task) => {
         if (!currentUserId || assignmentViewMode === "all") return true;
         const participants = readTaskParticipantIds(task);
@@ -693,11 +721,10 @@ export default function GanttPage() {
         return (
           task.title.toLowerCase().includes(needle) ||
           task.description.toLowerCase().includes(needle) ||
-          (userMap.get(task.assigneeId)?.displayName ?? task.assigneeId).toLowerCase().includes(needle) ||
           participantNames.includes(needle)
         );
       });
-  }, [assignmentViewMode, currentUserId, projectTasks, searchQuery, statusFilter, userMap]);
+  }, [assignmentViewMode, currentUserId, projectTasks, searchQuery, userMap]);
 
   const scopedTaskIds = useMemo(() => {
     const scoped = new Set(filteredBaseTasks.map((task) => task.id));
@@ -808,14 +835,8 @@ export default function GanttPage() {
     return rows;
   }, [collapsedIds, columns, scale.columnWidth, scopedTasks]);
 
-  const parentOptions = useMemo(() => [...projectTasks].sort(compareTaskOrder), [projectTasks]);
-
   const detailTask = useMemo(() => (detailTaskId ? projectTaskById.get(detailTaskId) ?? null : null), [detailTaskId, projectTaskById]);
   const detailRow = useMemo(() => timelineRows.find((row) => row.task.id === detailTaskId) ?? null, [detailTaskId, timelineRows]);
-  const detailParticipants = useMemo(() => {
-    if (!detailTask) return [];
-    return detailRow?.participants ?? readTaskParticipantIds(detailTask);
-  }, [detailRow, detailTask]);
 
   const closeDetailPopup = () => {
     setDetailTaskId(null);
@@ -831,8 +852,7 @@ export default function GanttPage() {
     setDetailForm({
       title: targetTask.title,
       description: targetTask.description,
-      assigneeId: targetTask.assigneeId,
-      status: targetTask.status,
+      participantIds: readTaskParticipantIds(targetTask),
       visibility: targetTask.visibility,
       startDate: toDateInputValue(start),
       endDate: toDateInputValue(end)
@@ -907,7 +927,6 @@ export default function GanttPage() {
 
   const clearFilters = () => {
     setSearchQuery("");
-    setStatusFilter("all");
     setAssignmentViewMode("all");
   };
 
@@ -937,10 +956,9 @@ export default function GanttPage() {
         "No",
         "Task ID",
         "Title",
+        "Description",
         "Project",
-        "Assignee",
         "Participants",
-        "Status",
         "Visibility",
         "Start Date",
         "End Date",
@@ -969,7 +987,6 @@ export default function GanttPage() {
       exportRows.forEach((row, index) => {
         const parentId = readTaskParentId(row.task);
         const parentTitle = parentId ? projectTaskById.get(parentId)?.title ?? parentId : "";
-        const assigneeName = userMap.get(row.task.assigneeId)?.displayName ?? row.task.assigneeId;
         const participantNames = row.participants.map((id) => userMap.get(id)?.displayName ?? id).join(", ");
         const duration = dayDiff(row.start, row.end) + 1;
 
@@ -977,10 +994,9 @@ export default function GanttPage() {
           index + 1,
           row.task.id,
           `${"  ".repeat(row.depth)}${row.task.title}`,
+          row.task.description,
           project.name,
-          assigneeName,
           participantNames,
-          statusMeta[row.task.status].label,
           visibilityLabel[row.task.visibility],
           toDateInputValue(row.start),
           toDateInputValue(row.end),
@@ -1015,11 +1031,10 @@ export default function GanttPage() {
       dataSheet.columns = [
         { width: 6 },
         { width: 22 },
-        { width: 34 },
-        { width: 20 },
-        { width: 16 },
         { width: 30 },
-        { width: 12 },
+        { width: 38 },
+        { width: 20 },
+        { width: 30 },
         { width: 12 },
         { width: 14 },
         { width: 14 },
@@ -1044,10 +1059,9 @@ export default function GanttPage() {
       const headerRowIndex = 4;
       const headerRow = graphSheet.getRow(headerRowIndex);
       headerRow.getCell(1).value = "Task";
-      headerRow.getCell(2).value = "Assignee";
-      headerRow.getCell(3).value = "Status";
+      headerRow.getCell(2).value = "Participants";
       columns.forEach((column, index) => {
-        headerRow.getCell(4 + index).value = column.primary;
+        headerRow.getCell(3 + index).value = column.primary;
       });
 
       headerRow.eachCell((cell) => {
@@ -1068,24 +1082,22 @@ export default function GanttPage() {
       headerRow.height = 20;
 
       graphSheet.getColumn(1).width = Math.max(24, Math.floor(leftColumnWidth / 14));
-      graphSheet.getColumn(2).width = 14;
-      graphSheet.getColumn(3).width = 12;
+      graphSheet.getColumn(2).width = 24;
       columns.forEach((_, index) => {
-        graphSheet.getColumn(4 + index).width = timeScale === "day" ? 4.3 : 5.4;
+        graphSheet.getColumn(3 + index).width = timeScale === "day" ? 4.3 : 5.4;
       });
 
       exportRows.forEach((row, rowIndex) => {
         const excelRowIndex = headerRowIndex + 1 + rowIndex;
         const excelRow = graphSheet.getRow(excelRowIndex);
-        const assigneeName = userMap.get(row.task.assigneeId)?.displayName ?? row.task.assigneeId;
+        const participantNames = row.participants.map((id) => userMap.get(id)?.displayName ?? id).join(", ");
 
         excelRow.getCell(1).value = `${"   ".repeat(row.depth)}${row.task.title}`;
-        excelRow.getCell(2).value = assigneeName;
-        excelRow.getCell(3).value = statusMeta[row.task.status].label;
+        excelRow.getCell(2).value = participantNames;
 
         const isHighlighted = highlightMyAssignments && isAssignedToCurrentUser(row.task, row.participants);
         if (isHighlighted) {
-          for (let colIdx = 1; colIdx <= Math.max(3, columns.length + 3); colIdx += 1) {
+          for (let colIdx = 1; colIdx <= Math.max(2, columns.length + 2); colIdx += 1) {
             const cell = excelRow.getCell(colIdx);
             cell.fill = {
               type: "pattern",
@@ -1097,7 +1109,7 @@ export default function GanttPage() {
 
         let firstBarCellPlaced = false;
         columns.forEach((column, columnIndex) => {
-          const cell = excelRow.getCell(4 + columnIndex);
+          const cell = excelRow.getCell(3 + columnIndex);
           const overlaps = daySerial(row.end) >= daySerial(column.start) && daySerial(row.start) <= daySerial(column.end);
 
           cell.border = {
@@ -1217,11 +1229,18 @@ export default function GanttPage() {
       return;
     }
 
-    const assigneeId = detailForm.assigneeId.trim();
+    const participantIds = [...new Set(detailForm.participantIds.map((id) => id.trim()).filter(Boolean))];
+    const assigneeId = participantIds[0] ?? detailTask.assigneeId ?? currentUserId ?? users[0]?.id;
     if (!assigneeId) {
-      toast.error("담당자를 선택해 주세요.");
+      toast.error("참여자를 최소 1명 이상 선택해 주세요.");
       return;
     }
+
+    if (!participantIds.includes(assigneeId)) {
+      participantIds.unshift(assigneeId);
+    }
+
+    const ownerId = detailTask.ownerId || assigneeId;
 
     const startDate = parseDateInput(detailForm.startDate);
     const endDate = parseDateInput(detailForm.endDate);
@@ -1235,15 +1254,12 @@ export default function GanttPage() {
       return;
     }
 
-    const nextParticipants = new Set(readTaskParticipantIds(detailTask));
-    nextParticipants.add(assigneeId);
-
     updateTask(detailTask.id, {
       title,
       description: detailForm.description,
       assigneeId,
-      participantIds: [...nextParticipants],
-      status: detailForm.status,
+      ownerId,
+      participantIds,
       visibility: detailForm.visibility,
       startDate: startDate.toISOString(),
       endDate: endDate.toISOString(),
@@ -1255,7 +1271,7 @@ export default function GanttPage() {
         ? {
             ...prev,
             title,
-            assigneeId,
+            participantIds,
             startDate: toDateInputValue(startDate),
             endDate: toDateInputValue(endDate)
           }
@@ -1277,6 +1293,202 @@ export default function GanttPage() {
     });
   };
 
+  const getSortedSiblingIds = (parentId: string | null) =>
+    projectTasks
+      .filter((candidate) => readTaskParentId(candidate) === parentId)
+      .sort(compareTaskOrder)
+      .map((candidate) => candidate.id);
+
+  const commitSiblingOrder = (patches: Map<string, ExtendedTaskPatch>, parentId: string | null, siblingIds: string[]) => {
+    siblingIds.forEach((siblingId, index) => {
+      const task = projectTaskById.get(siblingId);
+      if (!task) return;
+
+      const currentParentId = readTaskParentId(task);
+      const currentOrder = typeof task.order === "number" ? task.order : Number.POSITIVE_INFINITY;
+      const nextParentId = parentId ?? undefined;
+
+      if (currentParentId === parentId && currentOrder === index) return;
+
+      const previous = patches.get(siblingId) ?? {};
+      patches.set(siblingId, {
+        ...previous,
+        parentTaskId: nextParentId,
+        order: index
+      });
+    });
+  };
+
+  const applyTreePatches = (patches: Map<string, ExtendedTaskPatch>) => {
+    if (patches.size === 0) return false;
+    patches.forEach((patch, taskId) => {
+      updateTask(taskId, patch as Partial<Task>);
+    });
+    return true;
+  };
+
+  const collectSubtreeTaskIds = (rootTaskId: string) => {
+    const queue = [rootTaskId];
+    const collected = new Set<string>();
+
+    while (queue.length > 0) {
+      const currentTaskId = queue.shift();
+      if (!currentTaskId || collected.has(currentTaskId)) continue;
+      collected.add(currentTaskId);
+
+      const children = childIdsByParentId.get(currentTaskId) ?? [];
+      for (const childTaskId of children) {
+        queue.push(childTaskId);
+      }
+    }
+
+    return collected;
+  };
+
+  const isValidTreeDrop = (draggedTaskId: string, targetTaskId: string, position: TreeDropPosition) => {
+    if (!draggedTaskId || !targetTaskId) return false;
+    if (draggedTaskId === targetTaskId) return false;
+
+    const targetTask = projectTaskById.get(targetTaskId);
+    if (!targetTask) return false;
+    const subtreeTaskIds = collectSubtreeTaskIds(draggedTaskId);
+
+    if (position === "inside") {
+      if (subtreeTaskIds.has(targetTaskId)) {
+        return false;
+      }
+    }
+
+    const destinationParentId = position === "inside" ? targetTaskId : readTaskParentId(targetTask);
+    if (destinationParentId && subtreeTaskIds.has(destinationParentId)) {
+      return false;
+    }
+
+    return true;
+  };
+
+  const resolveTreeDropPosition = (event: ReactDragEvent<HTMLDivElement>): TreeDropPosition => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const relativeY = event.clientY - rect.top;
+    const ratio = rect.height > 0 ? relativeY / rect.height : 0.5;
+
+    if (ratio < 0.25) return "before";
+    if (ratio > 0.75) return "after";
+    return "inside";
+  };
+
+  const applyTreeReorder = (draggedTaskId: string, targetTaskId: string, position: TreeDropPosition) => {
+    const draggedTask = projectTaskById.get(draggedTaskId);
+    const targetTask = projectTaskById.get(targetTaskId);
+
+    if (!draggedTask || !targetTask) return false;
+    if (!isValidTreeDrop(draggedTaskId, targetTaskId, position)) return false;
+
+    const draggedParentId = readTaskParentId(draggedTask);
+    const targetParentId = readTaskParentId(targetTask);
+    const patches = new Map<string, ExtendedTaskPatch>();
+
+    if (position === "inside") {
+      const previousSiblings = getSortedSiblingIds(draggedParentId).filter((taskId) => taskId !== draggedTaskId);
+      const nextChildren = [...getSortedSiblingIds(targetTaskId).filter((taskId) => taskId !== draggedTaskId), draggedTaskId];
+
+      commitSiblingOrder(patches, draggedParentId, previousSiblings);
+      commitSiblingOrder(patches, targetTaskId, nextChildren);
+
+      if (!applyTreePatches(patches)) return false;
+
+      setCollapsedIds((prev) => {
+        if (!prev.has(targetTaskId)) return prev;
+        const next = new Set(prev);
+        next.delete(targetTaskId);
+        return next;
+      });
+
+      toast.success(`"${draggedTask.title}" 작업을 "${targetTask.title}" 하위로 이동했습니다.`);
+      return true;
+    }
+
+    const destinationParentId = targetParentId;
+    const destinationSiblings = getSortedSiblingIds(destinationParentId).filter((taskId) => taskId !== draggedTaskId);
+    const targetIndex = destinationSiblings.indexOf(targetTaskId);
+    if (targetIndex < 0) return false;
+
+    const insertIndex = position === "before" ? targetIndex : targetIndex + 1;
+    destinationSiblings.splice(insertIndex, 0, draggedTaskId);
+
+    if (draggedParentId !== destinationParentId) {
+      const previousSiblings = getSortedSiblingIds(draggedParentId).filter((taskId) => taskId !== draggedTaskId);
+      commitSiblingOrder(patches, draggedParentId, previousSiblings);
+    }
+
+    commitSiblingOrder(patches, destinationParentId, destinationSiblings);
+
+    if (!applyTreePatches(patches)) return false;
+
+    toast.success(`"${draggedTask.title}" 작업 순서를 변경했습니다.`);
+    return true;
+  };
+
+  const isValidTreeDropRef = useRef(isValidTreeDrop);
+  const applyTreeReorderRef = useRef(applyTreeReorder);
+  isValidTreeDropRef.current = isValidTreeDrop;
+  applyTreeReorderRef.current = applyTreeReorder;
+
+  const handleTreeDragStart = (event: ReactDragEvent<HTMLElement>, task: Task) => {
+    if (!writable) {
+      event.preventDefault();
+      return;
+    }
+
+    event.stopPropagation();
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", task.id);
+    setTreeDragTaskId(task.id);
+    setTreeDropTarget(null);
+  };
+
+  const handleTreeDragOver = (event: ReactDragEvent<HTMLDivElement>, targetTask: Task) => {
+    if (!writable || !treeDragTaskId) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const position = resolveTreeDropPosition(event);
+    if (!isValidTreeDrop(treeDragTaskId, targetTask.id, position)) {
+      event.dataTransfer.dropEffect = "none";
+      if (treeDropTarget) {
+        setTreeDropTarget(null);
+      }
+      return;
+    }
+
+    event.dataTransfer.dropEffect = "move";
+    if (!treeDropTarget || treeDropTarget.taskId !== targetTask.id || treeDropTarget.position !== position) {
+      setTreeDropTarget({ taskId: targetTask.id, position });
+    }
+  };
+
+  const handleTreeDrop = (event: ReactDragEvent<HTMLDivElement>, targetTask: Task) => {
+    if (!writable || !treeDragTaskId) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const position = resolveTreeDropPosition(event);
+    const reordered = applyTreeReorder(treeDragTaskId, targetTask.id, position);
+    if (!reordered) {
+      toast.warning("트리 이동을 적용할 수 없습니다.");
+    }
+
+    setTreeDropTarget(null);
+    setTreeDragTaskId(null);
+  };
+
+  const handleTreeDragEnd = () => {
+    setTreeDropTarget(null);
+    setTreeDragTaskId(null);
+  };
+
   const handleCreateTask = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -1291,22 +1503,34 @@ export default function GanttPage() {
       return;
     }
 
-    const assigneeId = newTaskForm.assigneeId || currentUserId || users[0]?.id;
+    const participantIds = [...new Set(newTaskForm.participantIds.map((id) => id.trim()).filter(Boolean))];
+    const assigneeId = participantIds[0] ?? currentUserId ?? users[0]?.id;
     if (!assigneeId) {
-      toast.error("담당자를 선택할 수 없습니다. 사용자 데이터를 확인해 주세요.");
+      toast.error("참여자를 최소 1명 이상 선택해 주세요.");
       return;
     }
+    if (!participantIds.includes(assigneeId)) {
+      participantIds.unshift(assigneeId);
+    }
+    const ownerId = currentUserId ?? assigneeId;
 
-    const startDate = parseDateInput(newTaskForm.startDate) ?? startOfDay(new Date());
-    const durationDays = clamp(Math.floor(newTaskForm.durationDays), 1, 365);
-    const endDate = addDays(startDate, durationDays - 1);
+    const startDate = parseDateInput(newTaskForm.startDate);
+    const endDate = parseDateInput(newTaskForm.endDate);
+    if (!startDate || !endDate) {
+      toast.error("시작일과 종료일을 올바르게 입력해 주세요.");
+      return;
+    }
+    if (daySerial(endDate) < daySerial(startDate)) {
+      toast.error("종료일은 시작일보다 빠를 수 없습니다.");
+      return;
+    }
 
     const prevTaskIds = new Set(tasks.map((task) => task.id));
 
     addTask({
       projectId,
       title,
-      description: `${title} (간트에서 생성)`,
+      description: newTaskForm.description.trim(),
       priority: "medium",
       assigneeId,
       dueDate: endDate.toISOString(),
@@ -1322,21 +1546,16 @@ export default function GanttPage() {
       return;
     }
 
-    const participants = [...new Set([assigneeId, ...newTaskForm.participantIds].filter(Boolean))];
-
     const patch: ExtendedTaskPatch = {
-      status: newTaskForm.status,
+      status: "in_progress",
       assigneeId,
+      ownerId,
       startDate: startDate.toISOString(),
       endDate: endDate.toISOString(),
       dueDate: endDate.toISOString(),
       visibility: newTaskForm.visibility,
-      participantIds: participants
+      participantIds
     };
-
-    if (newTaskForm.parentTaskId) {
-      patch.parentTaskId = newTaskForm.parentTaskId;
-    }
 
     if (newTaskForm.colorMode === "manual") {
       patch.tags = patchColorTag(createdTask.tags, newTaskForm.color);
@@ -1345,13 +1564,6 @@ export default function GanttPage() {
     }
 
     updateTask(createdTask.id, patch as Partial<Task>);
-
-    setCollapsedIds((prev) => {
-      if (!newTaskForm.parentTaskId) return prev;
-      const next = new Set(prev);
-      next.delete(newTaskForm.parentTaskId);
-      return next;
-    });
 
     setWindowStart((prev) => {
       if (daySerial(startDate) < daySerial(prev)) {
@@ -1365,10 +1577,10 @@ export default function GanttPage() {
     setNewTaskForm((prev) => ({
       ...prev,
       title: "",
-      assigneeId,
+      description: "",
       participantIds: [assigneeId],
-      durationDays,
-      startDate: toDateInputValue(startDate)
+      startDate: toDateInputValue(startDate),
+      endDate: toDateInputValue(endDate)
     }));
 
     setAddPopupOpen(false);
@@ -1413,8 +1625,9 @@ export default function GanttPage() {
     }
 
     const patch: ExtendedTaskPatch = {
-      status: task.status,
+      status: "in_progress",
       assigneeId,
+      ownerId: task.ownerId,
       startDate: startDate.toISOString(),
       endDate: endDate.toISOString(),
       dueDate: endDate.toISOString(),
@@ -1484,34 +1697,22 @@ export default function GanttPage() {
     updateTask(task.id, { tags: clearColorTag(task.tags) });
   };
 
-  const toggleParticipantOnTask = (task: Task, userId: string) => {
-    if (!writable) return;
-
-    const currentParticipants = readTaskParticipantIds(task);
-    const nextSet = new Set(currentParticipants);
-    if (nextSet.has(userId)) {
-      nextSet.delete(userId);
-    } else {
-      nextSet.add(userId);
-    }
-    nextSet.add(task.assigneeId);
-
-    updateTask(task.id, {
-      participantIds: [...nextSet]
-    });
-  };
-
   const beginBarInteraction = (event: ReactPointerEvent<HTMLDivElement>, row: TimelineRow, mode: DragMode) => {
     if (!writable || !row.bar) return;
     event.preventDefault();
     event.stopPropagation();
 
     dragDeltaRef.current = 0;
+    barDragIntentRef.current = mode === "move" ? "pending" : "timeline";
+    if (mode === "move") {
+      setTreeDropTarget(null);
+    }
     setDragState({
       taskId: row.task.id,
       pointerId: event.pointerId,
       mode,
       originX: event.clientX,
+      originY: event.clientY,
       originalStart: row.start,
       originalEnd: row.end
     });
@@ -1532,6 +1733,52 @@ export default function GanttPage() {
 
     const handlePointerMove = (event: PointerEvent) => {
       if (event.pointerId !== dragState.pointerId) return;
+
+      if (dragState.mode === "move" && barDragIntentRef.current === "pending") {
+        const deltaX = event.clientX - dragState.originX;
+        const deltaY = event.clientY - dragState.originY;
+        if (Math.abs(deltaX) >= 8 || Math.abs(deltaY) >= 8) {
+          barDragIntentRef.current = Math.abs(deltaY) > Math.abs(deltaX) + 4 ? "tree" : "timeline";
+        } else {
+          return;
+        }
+      }
+
+      if (dragState.mode === "move" && barDragIntentRef.current === "tree") {
+        const pointedElement = document.elementFromPoint(event.clientX, event.clientY);
+        const rowElement = pointedElement?.closest?.("[data-tree-row-task-id]") as HTMLElement | null;
+
+        if (!rowElement) {
+          setTreeDropTarget((previous) => (previous ? null : previous));
+          return;
+        }
+
+        const targetTaskId = rowElement.dataset.treeRowTaskId;
+        if (!targetTaskId) {
+          setTreeDropTarget((previous) => (previous ? null : previous));
+          return;
+        }
+
+        const rect = rowElement.getBoundingClientRect();
+        const relativeY = event.clientY - rect.top;
+        const ratio = rect.height > 0 ? relativeY / rect.height : 0.5;
+        const position: TreeDropPosition = ratio < 0.25 ? "before" : ratio > 0.75 ? "after" : "inside";
+
+        if (!isValidTreeDropRef.current(dragState.taskId, targetTaskId, position)) {
+          setTreeDropTarget((previous) => (previous ? null : previous));
+          return;
+        }
+
+        setTreeDropTarget((previous) => {
+          if (previous && previous.taskId === targetTaskId && previous.position === position) {
+            return previous;
+          }
+          return { taskId: targetTaskId, position };
+        });
+
+        return;
+      }
+
       const delta = Math.round((event.clientX - dragState.originX) / scale.columnWidth);
       if (delta === dragDeltaRef.current) return;
       dragDeltaRef.current = delta;
@@ -1563,8 +1810,30 @@ export default function GanttPage() {
 
     const handlePointerEnd = (event: PointerEvent) => {
       if (event.pointerId !== dragState.pointerId) return;
+
+      const interactionMode = barDragIntentRef.current;
+      barDragIntentRef.current = "pending";
+
+      if (dragState.mode === "move" && interactionMode === "tree") {
+        const dropTarget = treeDropTarget;
+        setTreeDropTarget(null);
+        dragDeltaRef.current = 0;
+        setDragState(null);
+
+        if (!dropTarget) return;
+        const reordered = applyTreeReorderRef.current(dragState.taskId, dropTarget.taskId, dropTarget.position);
+        if (!reordered) {
+          toast.warning("트리 이동을 적용할 수 없습니다.");
+        }
+        return;
+      }
+
+      const appliedDelta = dragDeltaRef.current;
       dragDeltaRef.current = 0;
+      setTreeDropTarget(null);
       setDragState(null);
+
+      if (dragState.mode === "move" && appliedDelta === 0) return;
 
       const target = useVisualKanbanStore.getState().tasks.find((task) => task.id === dragState.taskId);
       if (!target) return;
@@ -1581,7 +1850,7 @@ export default function GanttPage() {
       window.removeEventListener("pointerup", handlePointerEnd);
       window.removeEventListener("pointercancel", handlePointerEnd);
     };
-  }, [dragState, scale.columnWidth, timeScale, updateTask, writable]);
+  }, [dragState, scale.columnWidth, timeScale, treeDropTarget, updateTask, writable]);
 
   useEffect(() => {
     if (!columnResizeState) return;
@@ -1622,7 +1891,7 @@ export default function GanttPage() {
     );
   }
 
-  const activeFilterCount = Number(Boolean(searchQuery.trim())) + Number(statusFilter !== "all") + Number(assignmentViewMode !== "all");
+  const activeFilterCount = Number(Boolean(searchQuery.trim())) + Number(assignmentViewMode !== "all");
   const assignmentMode = assignmentModeMeta[assignmentViewMode];
   const AssignmentModeIcon = assignmentMode.icon;
 
@@ -1770,13 +2039,16 @@ export default function GanttPage() {
                         variant={highlightMyAssignments ? "secondary" : "outline"}
                         className="h-7 gap-1 px-2 text-xs"
                         onClick={() => setHighlightMyAssignments((prev) => !prev)}
+                        aria-pressed={highlightMyAssignments}
                         title="나에게 지정한 것 강조"
                       >
                         {highlightMyAssignments ? <CheckSquare2 className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
                         <span>강조</span>
                       </Button>
                     </div>
-                    <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">작업명 열 너비는 오른쪽 경계 드래그로 조절</p>
+                    <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                      작업명 텍스트를 드래그해 순서/계층을 바꿀 수 있습니다. (위/아래/하위 이동)
+                    </p>
                     <div
                       className="absolute inset-y-0 -right-4 z-[60] flex w-3 cursor-col-resize items-center justify-center"
                       onPointerDown={beginColumnResize}
@@ -1826,20 +2098,42 @@ export default function GanttPage() {
                 const overflowCount = participants.length - visibleParticipants.length;
                 const assignedToMe = isAssignedToCurrentUser(row.task, participants);
                 const highlighted = highlightMyAssignments && assignedToMe;
+                const dropPosition = treeDropTarget?.taskId === row.task.id ? treeDropTarget.position : null;
+                const canShowDropInside = dropPosition === "inside" && treeDragTaskId && treeDragTaskId !== row.task.id;
 
                 return (
                   <div
                     key={row.task.id}
+                    data-tree-row-task-id={row.task.id}
                     className={cn(
                       "group relative flex border-b border-zinc-200/80 transition hover:bg-zinc-50/60 dark:border-zinc-700/80 dark:hover:bg-zinc-800/20",
-                      highlighted ? "border-l-2 border-l-sky-500/80 bg-sky-50/40 dark:border-l-sky-600/80 dark:bg-sky-950/20" : ""
+                      highlighted
+                        ? "bg-amber-100/70 shadow-[inset_0_0_0_2px_rgba(245,158,11,0.45),0_0_0_1px_rgba(245,158,11,0.35)] dark:bg-amber-900/30 dark:shadow-[inset_0_0_0_2px_rgba(251,191,36,0.45),0_0_0_1px_rgba(251,191,36,0.25)]"
+                        : "",
+                      canShowDropInside ? "bg-violet-50/75 dark:bg-violet-950/30" : ""
                     )}
                     onDoubleClick={() => openDetailPopup(row.task.id)}
+                    onDragOver={(event) => handleTreeDragOver(event, row.task)}
+                    onDrop={(event) => handleTreeDrop(event, row.task)}
+                    onDragLeave={(event) => {
+                      if (!treeDropTarget || treeDropTarget.taskId !== row.task.id) return;
+                      const nextTarget = event.relatedTarget;
+                      if (nextTarget && event.currentTarget.contains(nextTarget as Node)) return;
+                      setTreeDropTarget(null);
+                    }}
                   >
+                    {dropPosition === "before" ? (
+                      <div className="pointer-events-none absolute inset-x-0 top-0 z-50 h-0.5 bg-violet-500 dark:bg-violet-400" />
+                    ) : null}
+                    {dropPosition === "after" ? (
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-50 h-0.5 bg-violet-500 dark:bg-violet-400" />
+                    ) : null}
+
                     <div
                       className={cn(
                         "sticky left-0 z-30 shrink-0 border-r border-zinc-200 bg-white/95 px-2.5 py-2 shadow-[1px_0_0_0_rgba(228,228,231,0.9)] backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95 dark:shadow-[1px_0_0_0_rgba(63,63,70,0.95)]",
-                        highlighted ? "ring-1 ring-inset ring-sky-300/75 dark:ring-sky-700/70" : ""
+                        highlighted ? "bg-amber-100/85 ring-2 ring-inset ring-amber-400/70 dark:bg-amber-900/45 dark:ring-amber-500/70" : "",
+                        canShowDropInside ? "ring-2 ring-inset ring-violet-400/70 dark:ring-violet-600/80" : ""
                       )}
                       style={{ width: leftColumnWidth, minWidth: leftColumnWidth, maxWidth: leftColumnWidth, minHeight: rowHeight }}
                     >
@@ -1861,7 +2155,18 @@ export default function GanttPage() {
                             <span className="inline-block h-5 w-5" />
                           )}
 
-                          <p className="truncate text-sm font-semibold">{row.task.title}</p>
+                          <p
+                            className={cn(
+                              "truncate text-sm font-semibold",
+                              writable ? "cursor-grab select-none active:cursor-grabbing" : "cursor-default"
+                            )}
+                            draggable={writable}
+                            onDragStart={(event) => handleTreeDragStart(event, row.task)}
+                            onDragEnd={handleTreeDragEnd}
+                            title="드래그해서 트리 순서/계층 이동"
+                          >
+                            {row.task.title}
+                          </p>
                         </div>
 
                         <div className="flex shrink-0 items-center gap-2">
@@ -1890,6 +2195,19 @@ export default function GanttPage() {
                             className="flex items-center gap-0.5 opacity-70 transition group-hover:opacity-100"
                             onDoubleClick={(event) => event.stopPropagation()}
                           >
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 px-2 text-xs"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openDetailPopup(row.task.id);
+                              }}
+                              title="작업 상세 열기"
+                              aria-label={`${row.task.title} 상세 열기`}
+                            >
+                              상세
+                            </Button>
                             <Button
                               size="icon"
                               variant="ghost"
@@ -1956,7 +2274,8 @@ export default function GanttPage() {
                             <div
                               className={cn(
                                 "relative flex h-8 items-center rounded-md px-2 text-[11px] font-semibold text-white shadow-sm ring-1 ring-black/10",
-                                writable ? "cursor-grab active:cursor-grabbing" : "cursor-default"
+                                writable ? "cursor-grab active:cursor-grabbing" : "cursor-default",
+                                highlighted ? "ring-2 ring-amber-300 shadow-[0_0_0_2px_rgba(251,191,36,0.35)]" : ""
                               )}
                               style={{ backgroundColor: row.color }}
                               title={`${row.task.title} · ${formatShortDate(row.start)} ~ ${formatShortDate(row.end)}`}
@@ -1971,8 +2290,12 @@ export default function GanttPage() {
 
                               <div className="flex min-w-0 items-center gap-1">
                                 {row.bar.clippedStart ? <span className="text-[10px]">◀</span> : null}
-                                <GripHorizontal className="h-3.5 w-3.5 shrink-0 opacity-80" />
-                                <span className="truncate">{row.task.title}</span>
+                                <span
+                                  className={cn("truncate", writable ? "cursor-grab select-none active:cursor-grabbing" : "")}
+                                  title="그래프를 좌우로 드래그해 일정 이동, 위아래로 드래그해 트리 이동"
+                                >
+                                  {row.task.title}
+                                </span>
                                 {row.bar.clippedEnd ? <span className="text-[10px]">▶</span> : null}
                               </div>
 
@@ -2001,7 +2324,7 @@ export default function GanttPage() {
         open={searchPopupOpen}
         onClose={() => setSearchPopupOpen(false)}
         title="검색 / 필터"
-        description="작업명·설명·참여자 검색, 상태 필터, 담당자 범위를 여기에서 조정합니다."
+        description="작업명·설명·참여자 검색과 담당/참여자 범위를 여기에서 조정합니다."
         widthClassName="max-w-2xl"
       >
         <div className="space-y-3">
@@ -2013,14 +2336,6 @@ export default function GanttPage() {
           />
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant={statusFilter === "all" ? "default" : "secondary"} size="sm" onClick={() => setStatusFilter("all")}>
-              전체 ({projectTasks.length})
-            </Button>
-            {(Object.keys(statusMeta) as TaskStatus[]).map((status) => (
-              <Button key={status} variant={statusFilter === status ? "default" : "secondary"} size="sm" onClick={() => setStatusFilter(status)}>
-                {statusMeta[status].label} ({statusCounts[status]})
-              </Button>
-            ))}
             <Button
               variant={assignmentViewMode === "all" ? "outline" : "default"}
               size="sm"
@@ -2034,6 +2349,7 @@ export default function GanttPage() {
               variant={highlightMyAssignments ? "default" : "outline"}
               size="sm"
               onClick={() => setHighlightMyAssignments((prev) => !prev)}
+              aria-pressed={highlightMyAssignments}
               className="gap-1"
             >
               {highlightMyAssignments ? <CheckSquare2 className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
@@ -2058,144 +2374,109 @@ export default function GanttPage() {
         open={addPopupOpen}
         onClose={() => setAddPopupOpen(false)}
         title="작업 추가"
-        description="상위/하위 관계, 기간, 참여자, 색상 정책을 설정해 트리형 Gantt 작업을 생성합니다."
+        description="작업명, 설명, 공개범위, 시작일, 종료일, 참여자, 색상을 설정합니다."
       >
-        <form onSubmit={handleCreateTask} className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          <Input
-            value={newTaskForm.title}
-            onChange={(event) => setNewTaskForm((prev) => ({ ...prev, title: event.target.value }))}
-            placeholder="작업명"
-            disabled={!writable}
-            className="xl:col-span-2"
-          />
-
-          <select
-            value={newTaskForm.parentTaskId}
-            onChange={(event) =>
-              setNewTaskForm((prev) => ({
-                ...prev,
-                parentTaskId: event.target.value,
-                colorMode: event.target.value ? "auto" : prev.colorMode
-              }))
-            }
-            className="h-10 rounded-md border border-zinc-200 bg-white px-3 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-            disabled={!writable}
-          >
-            <option value="">상위 없음 (루트)</option>
-            {parentOptions.map((task) => (
-              <option key={task.id} value={task.id}>
-                {task.title}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={newTaskForm.assigneeId}
-            onChange={(event) =>
-              setNewTaskForm((prev) => {
-                const assigneeId = event.target.value;
-                const participantSet = new Set(prev.participantIds);
-                if (assigneeId) participantSet.add(assigneeId);
-                return { ...prev, assigneeId, participantIds: [...participantSet] };
-              })
-            }
-            className="h-10 rounded-md border border-zinc-200 bg-white px-3 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-            disabled={!writable}
-          >
-            <option value="">담당자 선택</option>
-            {users.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.displayName}
-              </option>
-            ))}
-          </select>
-
-          <Input
-            type="date"
-            value={newTaskForm.startDate}
-            onChange={(event) => setNewTaskForm((prev) => ({ ...prev, startDate: event.target.value }))}
-            disabled={!writable}
-          />
-
-          <Input
-            type="number"
-            min={1}
-            max={365}
-            value={newTaskForm.durationDays}
-            onChange={(event) => {
-              const parsed = Number(event.target.value);
-              setNewTaskForm((prev) => ({
-                ...prev,
-                durationDays: Number.isFinite(parsed) && parsed > 0 ? parsed : 1
-              }));
-            }}
-            disabled={!writable}
-          />
-
-          <select
-            value={newTaskForm.status}
-            onChange={(event) => setNewTaskForm((prev) => ({ ...prev, status: event.target.value as TaskStatus }))}
-            className="h-10 rounded-md border border-zinc-200 bg-white px-3 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-            disabled={!writable}
-          >
-            {(Object.keys(statusMeta) as TaskStatus[]).map((status) => (
-              <option key={status} value={status}>
-                {statusMeta[status].label}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={newTaskForm.visibility}
-            onChange={(event) => setNewTaskForm((prev) => ({ ...prev, visibility: event.target.value as Task["visibility"] }))}
-            className="h-10 rounded-md border border-zinc-200 bg-white px-3 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-            disabled={!writable}
-          >
-            <option value="shared">공개</option>
-            <option value="private">개인</option>
-          </select>
-
-          <div className="rounded-md border border-zinc-200/80 bg-zinc-50/70 px-3 py-2 md:col-span-2 xl:col-span-3 dark:border-zinc-700/80 dark:bg-zinc-900/60">
-            <p className="mb-1 text-[11px] font-medium text-zinc-600 dark:text-zinc-300">참여자 지정</p>
-            <div className="flex flex-wrap gap-1">
-              {users.map((user) => {
-                const active = newTaskForm.participantIds.includes(user.id);
-                return (
-                  <button
-                    key={`form-participant-${user.id}`}
-                    type="button"
-                    className={cn(
-                      "rounded-full border px-2 py-0.5 text-[11px] transition",
-                      active
-                        ? "border-sky-500 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
-                        : "border-zinc-300 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-                    )}
-                    onClick={() =>
-                      setNewTaskForm((prev) => {
-                        const participantSet = new Set(prev.participantIds);
-                        if (participantSet.has(user.id)) {
-                          participantSet.delete(user.id);
-                        } else {
-                          participantSet.add(user.id);
-                        }
-                        if (prev.assigneeId) {
-                          participantSet.add(prev.assigneeId);
-                        }
-                        return { ...prev, participantIds: [...participantSet] };
-                      })
-                    }
-                    disabled={!writable}
-                  >
-                    {user.displayName}
-                  </button>
-                );
-              })}
+        <form onSubmit={handleCreateTask} className="space-y-4">
+          <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3 dark:border-zinc-700/80 dark:bg-zinc-900/60">
+            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">기본 정보</p>
+            <div className="mt-2 space-y-2">
+              <label className="space-y-1">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">작업명 *</span>
+                <Input
+                  value={newTaskForm.title}
+                  onChange={(event) => setNewTaskForm((prev) => ({ ...prev, title: event.target.value }))}
+                  placeholder="예: IA 구조 정의"
+                  disabled={!writable}
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">설명</span>
+                <textarea
+                  value={newTaskForm.description}
+                  onChange={(event) => setNewTaskForm((prev) => ({ ...prev, description: event.target.value }))}
+                  placeholder="작업 목적, 완료 조건 등을 적어주세요."
+                  disabled={!writable}
+                  rows={4}
+                  className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/60 dark:border-zinc-700 dark:bg-zinc-900"
+                />
+              </label>
             </div>
           </div>
 
-          <div className="rounded-md border border-zinc-200/80 bg-zinc-50/70 px-3 py-2 md:col-span-2 xl:col-span-3 dark:border-zinc-700/80 dark:bg-zinc-900/60">
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="font-medium">색상</span>
+          <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3 dark:border-zinc-700/80 dark:bg-zinc-900/60">
+            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">일정</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <label className="space-y-1">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">시작일</span>
+                <Input
+                  type="date"
+                  value={newTaskForm.startDate}
+                  onChange={(event) => setNewTaskForm((prev) => ({ ...prev, startDate: event.target.value }))}
+                  disabled={!writable}
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">종료일</span>
+                <Input
+                  type="date"
+                  value={newTaskForm.endDate}
+                  onChange={(event) => setNewTaskForm((prev) => ({ ...prev, endDate: event.target.value }))}
+                  disabled={!writable}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3 dark:border-zinc-700/80 dark:bg-zinc-900/60">
+            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">공개 범위</p>
+            <div className="mt-2 inline-flex rounded-lg border border-zinc-200 bg-white p-1 dark:border-zinc-700 dark:bg-zinc-900">
+              <button
+                type="button"
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-xs font-semibold transition",
+                  newTaskForm.visibility === "shared"
+                    ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                    : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                )}
+                onClick={() => setNewTaskForm((prev) => ({ ...prev, visibility: "shared" }))}
+                disabled={!writable}
+              >
+                공개
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-xs font-semibold transition",
+                  newTaskForm.visibility === "private"
+                    ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                    : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                )}
+                onClick={() => setNewTaskForm((prev) => ({ ...prev, visibility: "private" }))}
+                disabled={!writable}
+              >
+                개인
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/70 px-3 py-2 dark:border-zinc-700/80 dark:bg-zinc-900/60">
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">참여자</p>
+              <span className="text-[11px] text-zinc-500 dark:text-zinc-400">{newTaskForm.participantIds.length}명 선택됨</span>
+            </div>
+            <UserAutocompleteMultiSelect
+              options={userAutocompleteOptions}
+              selectedIds={newTaskForm.participantIds}
+              onChange={(nextSelectedIds) => setNewTaskForm((prev) => ({ ...prev, participantIds: nextSelectedIds }))}
+              placeholder="참여자 이름 입력"
+              disabled={!writable}
+            />
+          </div>
+
+          <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/70 px-3 py-2 dark:border-zinc-700/80 dark:bg-zinc-900/60">
+            <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">색상</span>
+              <span className="rounded-full border border-zinc-300 px-2 py-0.5 text-[11px] dark:border-zinc-700">{newTaskForm.color.toUpperCase()}</span>
               <Button
                 type="button"
                 variant={newTaskForm.colorMode === "auto" ? "default" : "outline"}
@@ -2203,7 +2484,7 @@ export default function GanttPage() {
                 onClick={() => setNewTaskForm((prev) => ({ ...prev, colorMode: "auto" }))}
                 disabled={!writable}
               >
-                자동 (부모 기반)
+                자동
               </Button>
               <Button
                 type="button"
@@ -2214,27 +2495,27 @@ export default function GanttPage() {
               >
                 수동
               </Button>
+            </div>
 
-              <div className="ml-2 flex flex-wrap items-center gap-1">
-                {colorPalette.map((swatch) => (
-                  <button
-                    key={swatch}
-                    type="button"
-                    aria-label={`색상 ${swatch}`}
-                    className={cn(
-                      "h-5 w-5 rounded-full border transition",
-                      newTaskForm.color.toLowerCase() === swatch ? "scale-110 border-zinc-900 dark:border-zinc-100" : "border-zinc-300 dark:border-zinc-700"
-                    )}
-                    style={{ backgroundColor: swatch }}
-                    onClick={() => setNewTaskForm((prev) => ({ ...prev, color: swatch, colorMode: "manual" }))}
-                    disabled={!writable}
-                  />
-                ))}
-              </div>
+            <div className="mt-1 flex flex-wrap items-center gap-1">
+              {colorPalette.map((swatch) => (
+                <button
+                  key={swatch}
+                  type="button"
+                  aria-label={`색상 ${swatch}`}
+                  className={cn(
+                    "h-5 w-5 rounded-full border transition",
+                    newTaskForm.color.toLowerCase() === swatch ? "scale-110 border-zinc-900 dark:border-zinc-100" : "border-zinc-300 dark:border-zinc-700"
+                  )}
+                  style={{ backgroundColor: swatch }}
+                  onClick={() => setNewTaskForm((prev) => ({ ...prev, color: swatch, colorMode: "manual" }))}
+                  disabled={!writable}
+                />
+              ))}
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-2 md:col-span-2 xl:col-span-3">
+          <div className="flex items-center justify-end gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-700">
             <Button type="button" variant="outline" onClick={() => setAddPopupOpen(false)}>
               취소
             </Button>
@@ -2307,26 +2588,46 @@ export default function GanttPage() {
         open={Boolean(detailTask)}
         onClose={closeDetailPopup}
         title={detailForm?.title?.trim() || detailTask?.title || "작업 상세"}
-        description="작업의 핵심 속성을 여기서 수정하고 저장할 수 있습니다."
+        editableTitle={
+          detailTask
+            ? {
+                value: detailForm?.title ?? detailTask.title,
+                onChange: (nextValue) =>
+                  setDetailForm((prev) => {
+                    if (prev) {
+                      return {
+                        ...prev,
+                        title: nextValue
+                      };
+                    }
+                    const range = rangeForTask(detailTask);
+                    return {
+                      title: nextValue,
+                      description: detailTask.description,
+                      participantIds: readTaskParticipantIds(detailTask),
+                      visibility: detailTask.visibility,
+                      startDate: toDateInputValue(range.start),
+                      endDate: toDateInputValue(range.end)
+                    };
+                  }),
+                disabled: !writable,
+                placeholder: "작업명"
+              }
+            : undefined
+        }
         widthClassName="max-w-3xl"
       >
         {detailTask ? (
           (() => {
             const detailRange = rangeForTask(detailTask);
-            const parentId = readTaskParentId(detailTask);
-            const parentTask = parentId ? projectTaskById.get(parentId) ?? null : null;
             const draft: DetailFormState = detailForm ?? {
               title: detailTask.title,
               description: detailTask.description,
-              assigneeId: detailTask.assigneeId,
-              status: detailTask.status,
+              participantIds: readTaskParticipantIds(detailTask),
               visibility: detailTask.visibility,
               startDate: toDateInputValue(detailRange.start),
               endDate: toDateInputValue(detailRange.end)
             };
-            const assigneeLabel = userMap.get(draft.assigneeId)?.displayName ?? draft.assigneeId;
-            const previewStart = parseDateInput(draft.startDate) ?? detailRange.start;
-            const previewEnd = parseDateInput(draft.endDate) ?? detailRange.end;
             return (
               <form className="space-y-4" onSubmit={handleDetailSave}>
                 {!writable ? (
@@ -2335,117 +2636,27 @@ export default function GanttPage() {
                   </p>
                 ) : null}
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="space-y-1 sm:col-span-2">
-                    <span className="text-xs text-zinc-500 dark:text-zinc-400">작업명</span>
-                    <Input
-                      value={draft.title}
-                      onChange={(event) =>
-                        setDetailForm((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                title: event.target.value
-                              }
-                            : prev
-                        )
-                      }
-                      disabled={!writable}
-                    />
-                  </label>
+                <label className="space-y-1">
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">설명</span>
+                  <textarea
+                    value={draft.description}
+                    onChange={(event) =>
+                      setDetailForm((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              description: event.target.value
+                            }
+                          : prev
+                      )
+                    }
+                    disabled={!writable}
+                    rows={4}
+                    className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/60 dark:border-zinc-700 dark:bg-zinc-900"
+                  />
+                </label>
 
-                  <label className="space-y-1 sm:col-span-2">
-                    <span className="text-xs text-zinc-500 dark:text-zinc-400">설명</span>
-                    <textarea
-                      value={draft.description}
-                      onChange={(event) =>
-                        setDetailForm((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                description: event.target.value
-                              }
-                            : prev
-                        )
-                      }
-                      disabled={!writable}
-                      rows={4}
-                      className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/60 dark:border-zinc-700 dark:bg-zinc-900"
-                    />
-                  </label>
-
-                  <label className="space-y-1">
-                    <span className="text-xs text-zinc-500 dark:text-zinc-400">담당자</span>
-                    <select
-                      value={draft.assigneeId}
-                      onChange={(event) =>
-                        setDetailForm((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                assigneeId: event.target.value
-                              }
-                            : prev
-                        )
-                      }
-                      className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                      disabled={!writable}
-                    >
-                      {users.map((user) => (
-                        <option key={`${detailTask.id}-assignee-${user.id}`} value={user.id}>
-                          {user.displayName}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="space-y-1">
-                    <span className="text-xs text-zinc-500 dark:text-zinc-400">상태</span>
-                    <select
-                      value={draft.status}
-                      onChange={(event) =>
-                        setDetailForm((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                status: event.target.value as TaskStatus
-                              }
-                            : prev
-                        )
-                      }
-                      className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                      disabled={!writable}
-                    >
-                      {(Object.keys(statusMeta) as TaskStatus[]).map((status) => (
-                        <option key={`${detailTask.id}-status-${status}`} value={status}>
-                          {statusMeta[status].label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="space-y-1">
-                    <span className="text-xs text-zinc-500 dark:text-zinc-400">공개 범위</span>
-                    <select
-                      value={draft.visibility}
-                      onChange={(event) =>
-                        setDetailForm((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                visibility: event.target.value as Task["visibility"]
-                              }
-                            : prev
-                        )
-                      }
-                      className="h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                      disabled={!writable}
-                    >
-                      <option value="shared">공개</option>
-                      <option value="private">개인</option>
-                    </select>
-                  </label>
-
+                <div className="grid gap-2 md:grid-cols-3">
                   <label className="space-y-1">
                     <span className="text-xs text-zinc-500 dark:text-zinc-400">시작일</span>
                     <Input
@@ -2483,100 +2694,108 @@ export default function GanttPage() {
                       disabled={!writable}
                     />
                   </label>
-                </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant={statusMeta[draft.status].badge}>{statusMeta[draft.status].label}</Badge>
-                  <Badge variant="neutral">{visibilityLabel[draft.visibility]}</Badge>
-                  <Badge variant="info">
-                    {formatShortDate(previewStart)} ~ {formatShortDate(previewEnd)}
-                  </Badge>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-lg border border-zinc-200/80 bg-zinc-50/60 p-3 dark:border-zinc-700/80 dark:bg-zinc-800/40">
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">담당자</p>
-                    <p className="mt-1 text-sm font-medium">{assigneeLabel}</p>
-                  </div>
-                  <div className="rounded-lg border border-zinc-200/80 bg-zinc-50/60 p-3 dark:border-zinc-700/80 dark:bg-zinc-800/40">
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">상위 작업</p>
-                    <p className="mt-1 text-sm font-medium">{parentTask?.title ?? "루트 작업"}</p>
-                  </div>
-                </div>
-
-                <div className="rounded-lg border border-zinc-200/80 bg-zinc-50/60 p-3 dark:border-zinc-700/80 dark:bg-zinc-800/40">
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">참여자</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    {detailParticipants.length > 0 ? (
-                      detailParticipants.map((participantId) => {
-                        const label = userMap.get(participantId)?.displayName ?? participantId;
-                        return (
-                          <span
-                            key={`detail-participant-${detailTask.id}-${participantId}`}
-                            className="inline-flex items-center gap-1 rounded-full border border-zinc-300 bg-white px-2 py-0.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
-                          >
-                            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-zinc-200 text-[9px] font-semibold dark:bg-zinc-700">
-                              {initials(label)}
-                            </span>
-                            {label}
-                          </span>
-                        );
-                      })
-                    ) : (
-                      <span className="text-xs text-zinc-500 dark:text-zinc-400">참여자 없음</span>
-                    )}
-                  </div>
-
-                  {writable ? (
-                    <div className="mt-3 flex flex-wrap gap-1">
-                      {users.map((user) => {
-                        const active = detailParticipants.includes(user.id);
-                        return (
-                          <button
-                            key={`${detailTask.id}-participant-toggle-${user.id}`}
-                            type="button"
-                            className={cn(
-                              "rounded-full border px-2 py-0.5 text-[11px] transition",
-                              active
-                                ? "border-sky-500 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
-                                : "border-zinc-300 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-                            )}
-                            onClick={() => toggleParticipantOnTask(detailTask, user.id)}
-                          >
-                            {user.displayName}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="rounded-lg border border-zinc-200/80 bg-zinc-50/60 p-3 dark:border-zinc-700/80 dark:bg-zinc-800/40">
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">색상</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-1">
-                    {colorPalette.map((swatch) => (
+                  <div className="space-y-1">
+                    <span className="text-xs text-zinc-500 dark:text-zinc-400">공개 범위</span>
+                    <div className="flex h-10 w-full items-center rounded-md border border-zinc-200 bg-white p-1 dark:border-zinc-700 dark:bg-zinc-900">
                       <button
-                        key={`detail-${detailTask.id}-${swatch}`}
                         type="button"
-                        aria-label={`색상 ${swatch}`}
                         className={cn(
-                          "h-5 w-5 rounded-full border transition",
-                          detailRow?.color.toLowerCase() === swatch ? "scale-110 border-zinc-900 dark:border-zinc-100" : "border-zinc-300 dark:border-zinc-700"
+                          "flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition",
+                          draft.visibility === "shared"
+                            ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                            : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
                         )}
-                        style={{ backgroundColor: swatch }}
-                        onClick={() => handleRowColor(detailTask, swatch)}
+                        onClick={() =>
+                          setDetailForm((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  visibility: "shared"
+                                }
+                              : prev
+                          )
+                        }
+                        disabled={!writable}
+                      >
+                        공개
+                      </button>
+                      <button
+                        type="button"
+                        className={cn(
+                          "flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition",
+                          draft.visibility === "private"
+                            ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                            : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                        )}
+                        onClick={() =>
+                          setDetailForm((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  visibility: "private"
+                                }
+                              : prev
+                          )
+                        }
+                        disabled={!writable}
+                      >
+                        개인
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 lg:grid-cols-2">
+                  <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-3 dark:border-zinc-700/80 dark:bg-zinc-800/40">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">색상</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-1">
+                      {colorPalette.map((swatch) => (
+                        <button
+                          key={`detail-${detailTask.id}-${swatch}`}
+                          type="button"
+                          aria-label={`색상 ${swatch}`}
+                          className={cn(
+                            "h-5 w-5 rounded-full border transition",
+                            detailRow?.color.toLowerCase() === swatch ? "scale-110 border-zinc-900 dark:border-zinc-100" : "border-zinc-300 dark:border-zinc-700"
+                          )}
+                          style={{ backgroundColor: swatch }}
+                          onClick={() => handleRowColor(detailTask, swatch)}
+                          disabled={!writable}
+                        />
+                      ))}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={detailRow?.explicitColor ? "outline" : "default"}
+                        onClick={() => handleAutoColor(detailTask)}
+                        disabled={!writable}
+                      >
+                        자동
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-3 dark:border-zinc-700/80 dark:bg-zinc-800/40">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">참여자 추가</p>
+                    <div className="mt-2">
+                      <UserAutocompleteMultiSelect
+                        options={userAutocompleteOptions}
+                        selectedIds={draft.participantIds}
+                        onChange={(nextSelectedIds) =>
+                          setDetailForm((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  participantIds: nextSelectedIds
+                                }
+                              : prev
+                          )
+                        }
+                        placeholder="참여자 이름 입력"
                         disabled={!writable}
                       />
-                    ))}
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={detailRow?.explicitColor ? "outline" : "default"}
-                      onClick={() => handleAutoColor(detailTask)}
-                      disabled={!writable}
-                    >
-                      자동
-                    </Button>
+                    </div>
                   </div>
                 </div>
 

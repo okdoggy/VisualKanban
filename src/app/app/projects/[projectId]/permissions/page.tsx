@@ -22,7 +22,7 @@ const roles: AccessRole[] = ["admin", "editor", "viewer", "private"];
 const featureLabel: Record<FeatureKey, string> = {
   project: "Project",
   kanban: "Kanban",
-  mindmap: "WhiteBoard",
+  mindmap: "Mindmap / Whiteboard",
   gantt: "Gantt",
   taskboard: "Task Board",
   todo: "Todo",
@@ -55,10 +55,11 @@ export default function PermissionsPage() {
   const projectId = readParam(params.projectId);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
-  const { users, currentUserId, projects, permissions, setPermission } = useVisualKanbanStore(useShallow((state) => ({
+  const { users, currentUserId, projects, projectMemberships, permissions, setPermission } = useVisualKanbanStore(useShallow((state) => ({
     users: state.users,
     currentUserId: state.currentUserId,
     projects: state.projects,
+    projectMemberships: state.projectMemberships,
     permissions: state.permissions,
     setPermission: state.setPermission
   })));
@@ -72,9 +73,11 @@ export default function PermissionsPage() {
         user: currentUser,
         projectId,
         feature: "project",
-        permissions
+        permissions,
+        projectMemberships,
+        projects
       }),
-    [currentUser, permissions, projectId]
+    [currentUser, permissions, projectId, projectMemberships, projects]
   );
 
   const canManage = projectRole === "admin";

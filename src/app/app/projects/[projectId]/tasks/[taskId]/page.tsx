@@ -50,16 +50,19 @@ export default function TaskDetailPage() {
   const [commentBody, setCommentBody] = useState("");
   const [feedback, setFeedback] = useState("");
 
-  const { users, currentUserId, projects, permissions, tasks, comments, moveTask, addComment } = useVisualKanbanStore(useShallow((state) => ({
-    users: state.users,
-    currentUserId: state.currentUserId,
-    projects: state.projects,
-    permissions: state.permissions,
-    tasks: state.tasks,
-    comments: state.comments,
-    moveTask: state.moveTask,
-    addComment: state.addComment
-  })));
+  const { users, currentUserId, projects, projectMemberships, permissions, tasks, comments, moveTask, addComment } = useVisualKanbanStore(
+    useShallow((state) => ({
+      users: state.users,
+      currentUserId: state.currentUserId,
+      projects: state.projects,
+      projectMemberships: state.projectMemberships,
+      permissions: state.permissions,
+      tasks: state.tasks,
+      comments: state.comments,
+      moveTask: state.moveTask,
+      addComment: state.addComment
+    }))
+  );
 
   const currentUser = useMemo(() => getCurrentUser(users, currentUserId), [users, currentUserId]);
   const project = useMemo(() => projects.find((item) => item.id === projectId), [projectId, projects]);
@@ -70,9 +73,11 @@ export default function TaskDetailPage() {
         user: currentUser,
         projectId,
         feature: "gantt",
-        permissions
+        permissions,
+        projectMemberships,
+        projects
       }),
-    [currentUser, permissions, projectId]
+    [currentUser, permissions, projectId, projectMemberships, projects]
   );
 
   const task = useMemo(() => tasks.find((item) => item.id === taskId && item.projectId === projectId) ?? null, [projectId, taskId, tasks]);
@@ -86,6 +91,7 @@ export default function TaskDetailPage() {
   );
 
   const userMap = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
+  const writable = canWrite(taskAccessRole);
 
   if (!canRead(taskAccessRole)) {
     return <FeatureAccessDenied feature="Task Detail" />;
@@ -129,6 +135,10 @@ export default function TaskDetailPage() {
 
   const onSubmitComment = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!writable) {
+      setFeedback("현재 권한은 읽기 전용입니다. 댓글 등록은 Editor 이상에서 가능합니다.");
+      return;
+    }
     const result = addComment(task.id, commentBody);
     if (!result.ok) {
       setFeedback(result.reason ?? "댓글 등록에 실패했습니다.");
@@ -194,14 +204,14 @@ export default function TaskDetailPage() {
                   className={neoButton}
                   size="sm"
                   variant={status === task.status ? "default" : "secondary"}
-                  disabled={!canWrite(taskAccessRole)}
+                  disabled={!writable}
                   onClick={() => onMoveStatus(status)}
                 >
                   {statusMeta[status].label}
                 </Button>
               ))}
             </div>
-            {!canWrite(taskAccessRole) ? (
+            {!writable ? (
               <CardDescription>현재 권한은 읽기 전용입니다. 상태 변경은 Editor 이상에서 가능합니다.</CardDescription>
             ) : null}
           </div>
@@ -214,20 +224,34 @@ export default function TaskDetailPage() {
           </div>
 
           <form onSubmit={onSubmitComment} className="space-y-2">
+            <label htmlFor="task-comment-body" className="block text-xs font-medium text-zinc-600 dark:text-zinc-300">
+              댓글 입력
+            </label>
             <textarea
+              id="task-comment-body"
               value={commentBody}
               onChange={(event) => setCommentBody(event.target.value)}
               placeholder="코멘트를 입력하세요..."
               rows={4}
+              disabled={!writable}
+              aria-describedby={!writable ? "task-comment-readonly-reason" : undefined}
               className="w-full rounded-md border-2 border-zinc-900 bg-white px-3 py-2 text-sm outline-none shadow-[2px_2px_0_0_rgb(24,24,27)] transition dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
             />
-            <Button type="submit" size="sm" className={`w-full ${neoButton}`}>
+            <Button type="submit" size="sm" className={`w-full ${neoButton}`} disabled={!writable}>
               댓글 등록
             </Button>
           </form>
+          {!writable ? (
+            <CardDescription id="task-comment-readonly-reason">현재 권한은 읽기 전용이라 댓글을 등록할 수 없습니다.</CardDescription>
+          ) : null}
 
           {feedback ? (
-            <p className="rounded-md border-2 border-zinc-900 bg-zinc-100 px-3 py-2 text-xs text-zinc-700 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800 dark:text-zinc-200 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]">
+            <p
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              className="rounded-md border-2 border-zinc-900 bg-zinc-100 px-3 py-2 text-xs text-zinc-700 shadow-[2px_2px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-800 dark:text-zinc-200 dark:shadow-[2px_2px_0_0_rgb(0,0,0)]"
+            >
               {feedback}
             </p>
           ) : null}

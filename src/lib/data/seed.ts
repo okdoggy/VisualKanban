@@ -5,6 +5,7 @@ import type {
   MindmapNode,
   PermissionAssignment,
   PersonalTodo,
+  ProjectMembership,
   Project,
   Task,
   User,
@@ -82,7 +83,39 @@ export const seedProjects: Project[] = [
   {
     id: "proj-visual",
     name: "VisualKanban",
-    description: "Developer collaboration project board"
+    description: "Developer collaboration project board",
+    ownerId: "u-admin"
+  }
+];
+
+export const seedProjectMemberships: ProjectMembership[] = [
+  {
+    id: "member-proj-visual-owner",
+    projectId: "proj-visual",
+    userId: "u-admin",
+    role: "owner",
+    updatedAt: now
+  },
+  {
+    id: "member-proj-visual-u-me",
+    projectId: "proj-visual",
+    userId: "u-me",
+    role: "write",
+    updatedAt: now
+  },
+  {
+    id: "member-proj-visual-u-editor",
+    projectId: "proj-visual",
+    userId: "u-editor",
+    role: "write",
+    updatedAt: now
+  },
+  {
+    id: "member-proj-visual-u-viewer",
+    projectId: "proj-visual",
+    userId: "u-viewer",
+    role: "read",
+    updatedAt: now
   }
 ];
 

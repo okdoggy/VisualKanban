@@ -89,33 +89,39 @@ export default function DashboardPage() {
   const projectPopupRef = useRef<HTMLDivElement>(null);
   const [projectPopupOpen, setProjectPopupOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
-  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const [selectedProjectIdByAccountId, setSelectedProjectIdByAccountId] = useState<Record<string, string>>({});
 
   const {
     users,
     projects,
+    projectMemberships,
     permissions,
     tasks,
     kanbanTasks,
     personalTodos,
     currentUserId,
+    recentProjectIdByAccountId,
     connectedUserIds,
     toggleTodo,
     cleanupTodos,
-    addProject
+    addProject,
+    setRecentProjectForCurrentAccount
   } = useVisualKanbanStore(
     useShallow((state) => ({
       users: state.users,
       projects: state.projects,
+      projectMemberships: state.projectMemberships,
       permissions: state.permissions,
       tasks: state.tasks,
       kanbanTasks: state.kanbanTasks,
       personalTodos: state.personalTodos,
       currentUserId: state.currentUserId,
+      recentProjectIdByAccountId: state.recentProjectIdByAccountId,
       connectedUserIds: state.connectedUserIds,
       toggleTodo: state.toggleTodo,
       cleanupTodos: state.cleanupTodos,
-      addProject: state.addProject
+      addProject: state.addProject,
+      setRecentProjectForCurrentAccount: state.setRecentProjectForCurrentAccount
     }))
   );
 
@@ -129,18 +135,41 @@ export default function DashboardPage() {
         user: currentUser,
         projectId: project.id,
         feature: "project",
-        permissions
+        permissions,
+        projectMemberships,
+        projects
       });
       return canRead(role);
     });
-  }, [currentUser, permissions, projects]);
+  }, [currentUser, permissions, projectMemberships, projects]);
+
+  const selectedProjectId = currentUserId ? (selectedProjectIdByAccountId[currentUserId] ?? "") : "";
+  const recentProjectId = currentUserId ? (recentProjectIdByAccountId[currentUserId] ?? "") : "";
+
+  const setSelectedProjectForCurrentAccount = useCallback(
+    (projectId: string) => {
+      if (!currentUserId) return;
+      setSelectedProjectIdByAccountId((previous) =>
+        previous[currentUserId] === projectId
+          ? previous
+          : {
+              ...previous,
+              [currentUserId]: projectId
+            }
+      );
+    },
+    [currentUserId]
+  );
 
   const effectiveProjectId = useMemo(() => {
     if (readableProjects.some((item) => item.id === selectedProjectId)) {
       return selectedProjectId;
     }
+    if (recentProjectId && readableProjects.some((item) => item.id === recentProjectId)) {
+      return recentProjectId;
+    }
     return readableProjects[0]?.id ?? "";
-  }, [readableProjects, selectedProjectId]);
+  }, [readableProjects, recentProjectId, selectedProjectId]);
 
   const project = useMemo(
     () => readableProjects.find((item) => item.id === effectiveProjectId) ?? readableProjects[0] ?? null,
@@ -156,9 +185,11 @@ export default function DashboardPage() {
       user: currentUser,
       projectId: project.id,
       feature: "kanban",
-      permissions
+      permissions,
+      projectMemberships,
+      projects
     });
-  }, [currentUser, permissions, project]);
+  }, [currentUser, permissions, project, projectMemberships, projects]);
 
   const ganttRole = useMemo(() => {
     if (!project) return "none" as const;
@@ -166,9 +197,11 @@ export default function DashboardPage() {
       user: currentUser,
       projectId: project.id,
       feature: "gantt",
-      permissions
+      permissions,
+      projectMemberships,
+      projects
     });
-  }, [currentUser, permissions, project]);
+  }, [currentUser, permissions, project, projectMemberships, projects]);
 
   const myTodos = useMemo(() => {
     if (!currentUserId) return [];
@@ -289,10 +322,11 @@ export default function DashboardPage() {
     }
 
     setNewProjectName("");
-    setSelectedProjectId(result.projectId);
+    setSelectedProjectForCurrentAccount(result.projectId);
+    setRecentProjectForCurrentAccount(result.projectId);
     setProjectPopupOpen(false);
     toast.success(`\"${name}\" 프로젝트를 추가했습니다.`);
-  }, [addProject, newProjectName]);
+  }, [addProject, newProjectName, setRecentProjectForCurrentAccount, setSelectedProjectForCurrentAccount]);
 
   if (!currentUser) {
     return (
@@ -356,7 +390,8 @@ export default function DashboardPage() {
                     variant={active ? "default" : "outline"}
                     className="h-8 w-full justify-start gap-2 px-2 text-xs"
                     onClick={() => {
-                      setSelectedProjectId(candidate.id);
+                      setSelectedProjectForCurrentAccount(candidate.id);
+                      setRecentProjectForCurrentAccount(candidate.id);
                       setProjectPopupOpen(false);
                     }}
                   >

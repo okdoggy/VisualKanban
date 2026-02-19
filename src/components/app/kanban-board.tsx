@@ -3,6 +3,7 @@
 import {
   DndContext,
   DragOverlay,
+  KeyboardSensor,
   PointerSensor,
   closestCenter,
   type DragEndEvent,
@@ -11,7 +12,7 @@ import {
   useSensor,
   useSensors
 } from "@dnd-kit/core";
-import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
@@ -33,6 +34,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useState
 } from "react";
@@ -43,6 +45,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { UserAutocompleteMultiSelect, UserAutocompleteSelect } from "@/components/ui/user-autocomplete";
 import { canRead, canWrite } from "@/lib/permissions/roles";
 import { getCurrentUser, getEffectiveRoleForFeature, getVisibleTasks, useVisualKanbanStore } from "@/lib/store";
 import type { KanbanHistoryItem, Task, TaskStatus, User } from "@/lib/types";
@@ -483,6 +486,7 @@ function PopupShell({
   onClose,
   title,
   description,
+  editableTitle,
   widthClassName = "max-w-2xl",
   children
 }: {
@@ -490,10 +494,17 @@ function PopupShell({
   onClose: () => void;
   title: string;
   description?: string;
+  editableTitle?: {
+    value: string;
+    onChange: (nextValue: string) => void;
+    disabled?: boolean;
+    placeholder?: string;
+  };
   widthClassName?: string;
   children: ReactNode;
 }) {
   const prefersReducedMotion = useReducedMotion();
+  const titleId = useId();
 
   const backdropTransition = prefersReducedMotion ? { duration: 0 } : { duration: 0.16, ease: "easeOut" as const };
   const panelTransition = prefersReducedMotion ? { duration: 0 } : { duration: 0.2, ease: "easeOut" as const };
@@ -521,17 +532,39 @@ function PopupShell({
 
           <motion.div
             className={cn(`relative w-full ${NEO_CARD_CLASS}`, widthClassName)}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
             initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: 10, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: 8, scale: 0.985 }}
             transition={panelTransition}
           >
-            <div className="flex items-start justify-between border-b-2 border-zinc-900 px-4 py-3 dark:border-zinc-100">
-              <div className="min-w-0">
-                <h2 className="truncate text-base font-semibold">{title}</h2>
+            <div className="flex items-start gap-2 border-b-2 border-zinc-900 px-4 py-3 dark:border-zinc-100">
+              <div className="min-w-0 flex-1">
+                <h2 id={titleId} className={cn("truncate text-base font-semibold", editableTitle ? "sr-only" : "")}>
+                  {title}
+                </h2>
+                {editableTitle ? (
+                  <Input
+                    value={editableTitle.value}
+                    onChange={(event) => editableTitle.onChange(event.target.value)}
+                    placeholder={editableTitle.placeholder ?? "제목"}
+                    disabled={editableTitle.disabled}
+                    className="h-10 w-full min-w-[220px] border-zinc-900 bg-white text-base font-semibold dark:border-zinc-100 dark:bg-zinc-900"
+                    aria-label="작업 제목"
+                  />
+                ) : null}
                 {description ? <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{description}</p> : null}
               </div>
-              <Button type="button" size="icon" variant="ghost" onClick={onClose} className={TOOLBAR_CONTROL_CLASS}>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                onClick={onClose}
+                className={cn(TOOLBAR_CONTROL_CLASS, "shrink-0")}
+                aria-label={`${title} 닫기`}
+              >
                 <X className="h-4 w-4" />
               </Button>
             </div>
@@ -554,6 +587,7 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
     kanbanTasks,
     kanbanHistory,
     users,
+    projectMemberships,
     permissions,
     currentUserId,
     moveKanbanTask,
@@ -572,6 +606,7 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
         kanbanTasks: state.kanbanTasks,
         kanbanHistory: extended.kanbanHistory ?? [],
         users: state.users,
+        projectMemberships: state.projectMemberships,
         permissions: state.permissions,
         currentUserId: state.currentUserId,
         moveKanbanTask: state.moveKanbanTask,
@@ -595,9 +630,11 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
         user: currentUser,
         projectId,
         feature: "kanban",
-        permissions
+        permissions,
+        projectMemberships,
+        projects
       }),
-    [currentUser, permissions, projectId]
+    [currentUser, permissions, projectId, projectMemberships, projects]
   );
 
   const readable = canRead(role);
@@ -713,6 +750,15 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
       return acc;
     }, {});
   }, [users]);
+  const userAutocompleteOptions = useMemo(
+    () =>
+      users.map((user) => ({
+        id: user.id,
+        label: user.displayName,
+        secondaryLabel: `@${user.username}`
+      })),
+    [users]
+  );
 
   const effectiveFocusedTaskId = focusedTaskId && filteredTaskMap.has(focusedTaskId) ? focusedTaskId : null;
 
@@ -748,6 +794,9 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
       activationConstraint: {
         distance: 6
       }
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates
     })
   );
 
@@ -1146,6 +1195,7 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
           className={cn("h-7 max-w-[220px] gap-1 px-2 text-xs", TOOLBAR_CONTROL_CLASS)}
           onClick={() => setProjectPopupOpen((previous) => !previous)}
           title="프로젝트 선택/추가"
+          aria-pressed={projectPopupOpen}
         >
           <FolderKanban className="h-3.5 w-3.5" />
           <span className="truncate">{project.name}</span>
@@ -1168,6 +1218,7 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
           className={cn("h-7 gap-1 px-2 text-xs", TOOLBAR_CONTROL_CLASS)}
           onClick={() => setHighlightMyAssignments((previous) => !previous)}
           title="나에게 지정된 작업 강조"
+          aria-pressed={highlightMyAssignments}
         >
           {highlightMyAssignments ? <CheckSquare2 className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
           <span>강조</span>
@@ -1200,6 +1251,7 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
             variant={historyPopupOpen ? "secondary" : "outline"}
             className={cn("h-7 px-2 text-xs", TOOLBAR_CONTROL_CLASS)}
             onClick={() => setHistoryPopupOpen(true)}
+            aria-pressed={historyPopupOpen}
           >
             History
           </Button>
@@ -1369,41 +1421,34 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
 
             <label className="space-y-1.5">
               <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">담당자</span>
-              <select
+              <UserAutocompleteSelect
                 value={newTaskDraft.assigneeId}
-                onChange={(event) => {
-                  const assigneeId = event.target.value;
+                onChange={(assigneeId) => {
                   setNewTaskDraft((previous) => ({
                     ...previous,
                     assigneeId,
                     participantIds: ensureAssigneeInParticipants(previous.participantIds, assigneeId)
                   }));
                 }}
-                className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
+                options={userAutocompleteOptions}
+                placeholder="담당자 이름 입력"
+                allowClear={false}
+                inputClassName="h-9"
                 disabled={!writable}
-              >
-                {users.map((user) => (
-                  <option key={`new-assignee-${user.id}`} value={user.id}>
-                    {user.displayName}
-                  </option>
-                ))}
-              </select>
+              />
             </label>
 
             <label className="space-y-1.5">
               <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Owner</span>
-              <select
+              <UserAutocompleteSelect
                 value={newTaskDraft.ownerId}
-                onChange={(event) => setNewTaskDraft((previous) => ({ ...previous, ownerId: event.target.value }))}
-                className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
+                onChange={(ownerId) => setNewTaskDraft((previous) => ({ ...previous, ownerId }))}
+                options={userAutocompleteOptions}
+                placeholder="Owner 이름 입력"
+                allowClear={false}
+                inputClassName="h-9"
                 disabled={!writable}
-              >
-                {users.map((user) => (
-                  <option key={`new-owner-${user.id}`} value={user.id}>
-                    {user.displayName}
-                  </option>
-                ))}
-              </select>
+              />
             </label>
 
             <label className="space-y-1.5">
@@ -1432,42 +1477,20 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
 
           <div className="space-y-2">
             <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">참여자</p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {users.map((user) => {
-                const checked = newTaskDraft.participantIds.includes(user.id) || newTaskDraft.assigneeId === user.id;
-                const disabled = newTaskDraft.assigneeId === user.id || !writable;
-
-                return (
-                  <label
-                    key={`new-participant-${user.id}`}
-                    className="flex items-center gap-2 rounded-md border border-zinc-200/80 px-2.5 py-2 text-sm dark:border-zinc-700/80"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      disabled={disabled}
-                      onChange={(event) => {
-                        const nextChecked = event.target.checked;
-                        setNewTaskDraft((previous) => {
-                          const has = previous.participantIds.includes(user.id);
-                          const participantIds = nextChecked
-                            ? has
-                              ? previous.participantIds
-                              : [...previous.participantIds, user.id]
-                            : previous.participantIds.filter((participantId) => participantId !== user.id);
-
-                          return {
-                            ...previous,
-                            participantIds: ensureAssigneeInParticipants(participantIds, previous.assigneeId)
-                          };
-                        });
-                      }}
-                    />
-                    <span>{user.displayName}</span>
-                  </label>
-                );
-              })}
-            </div>
+            <UserAutocompleteMultiSelect
+              options={userAutocompleteOptions}
+              selectedIds={ensureAssigneeInParticipants(newTaskDraft.participantIds, newTaskDraft.assigneeId)}
+              lockedIds={newTaskDraft.assigneeId ? [newTaskDraft.assigneeId] : []}
+              onChange={(nextSelectedIds) =>
+                setNewTaskDraft((previous) => ({
+                  ...previous,
+                  participantIds: ensureAssigneeInParticipants(nextSelectedIds, previous.assigneeId)
+                }))
+              }
+              placeholder="참여자 이름 입력"
+              inputClassName="h-9"
+              disabled={!writable}
+            />
           </div>
 
           <div className="flex justify-end gap-2">
@@ -1536,57 +1559,69 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
           setDetailTaskId(null);
           setDetailDraft(null);
         }}
-        title={detailTask?.title || "작업 상세"}
-        description="제목, 설명, 우선순위, 참여자, owner, 마감일, visibility, 상태, assignee를 수정할 수 있습니다."
+        title={detailDraft?.title?.trim() || detailTask?.title || "작업 상세"}
+        editableTitle={
+          detailDraft
+            ? {
+                value: detailDraft.title,
+                onChange: (nextValue) =>
+                  setDetailDraft((previous) => (previous ? { ...previous, title: nextValue } : previous)),
+                disabled: !writable,
+                placeholder: "작업 제목"
+              }
+            : undefined
+        }
         widthClassName="max-w-3xl"
       >
         {detailTask && detailDraft ? (
           <form className="space-y-4" onSubmit={handleSaveDetail}>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={STAGE_BADGE_VARIANT[detailDraft.stage]}>{STAGE_LABEL[detailDraft.stage]}</Badge>
-              <Badge variant="neutral">P{detailDraft.priority}</Badge>
-              <Badge variant={detailDraft.visibility === "private" ? "warning" : "info"}>{detailDraft.visibility}</Badge>
+            <div className="space-y-1">
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">설명</span>
+              <textarea
+                value={detailDraft.description}
+                onChange={(event) => setDetailDraft((previous) => (previous ? { ...previous, description: event.target.value } : previous))}
+                disabled={!writable}
+                rows={4}
+                className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm outline-none ring-offset-white transition focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:ring-offset-zinc-900 dark:focus-visible:ring-zinc-700"
+              />
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5 sm:col-span-2">
-                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">제목</p>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <label className="space-y-1">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">마감일</span>
                 <Input
-                  value={detailDraft.title}
-                  onChange={(event) => setDetailDraft((previous) => (previous ? { ...previous, title: event.target.value } : previous))}
+                  type="date"
+                  value={detailDraft.dueDate}
+                  onChange={(event) => setDetailDraft((previous) => (previous ? { ...previous, dueDate: event.target.value } : previous))}
                   disabled={!writable}
-                  required
                 />
-              </div>
-
-              <div className="space-y-1.5 sm:col-span-2">
-                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">설명</p>
-                <textarea
-                  value={detailDraft.description}
-                  onChange={(event) => setDetailDraft((previous) => (previous ? { ...previous, description: event.target.value } : previous))}
-                  disabled={!writable}
-                  className="h-28 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm outline-none ring-offset-white transition focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:ring-offset-zinc-900 dark:focus-visible:ring-zinc-700"
-                />
-              </div>
-
-              <label className="space-y-1.5">
-                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">상태</span>
-                <select
-                  value={detailDraft.stage}
-                  onChange={(event) => setDetailDraft((previous) => (previous ? { ...previous, stage: event.target.value as KanbanStage } : previous))}
-                  className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
-                  disabled={!writable}
-                >
-                  {COLUMNS.map((column) => (
-                    <option key={`detail-status-${column.id}`} value={column.id}>
-                      {column.title}
-                    </option>
-                  ))}
-                </select>
               </label>
 
-              <label className="space-y-1.5">
-                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">우선순위 (1~7)</span>
+              <label className="space-y-1">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">담당자</span>
+                <UserAutocompleteSelect
+                  value={detailDraft.assigneeId}
+                  onChange={(assigneeId) => {
+                    setDetailDraft((previous) =>
+                      previous
+                        ? {
+                            ...previous,
+                            assigneeId,
+                            participantIds: ensureAssigneeInParticipants(previous.participantIds, assigneeId)
+                          }
+                        : previous
+                    );
+                  }}
+                  options={userAutocompleteOptions}
+                  placeholder="담당자 이름 입력"
+                  allowClear={false}
+                  inputClassName="h-10"
+                  disabled={!writable}
+                />
+              </label>
+
+              <label className="space-y-1">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">우선순위</span>
                 <select
                   value={String(detailDraft.priority)}
                   onChange={(event) =>
@@ -1599,132 +1634,93 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
                         : previous
                     )
                   }
-                  className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
+                  className="h-10 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
                   disabled={!writable}
                 >
                   {Array.from({ length: 7 }, (_, index) => index + 1).map((value) => (
                     <option key={`detail-priority-${value}`} value={value}>
-                      {value}
+                      P{value}
                     </option>
                   ))}
-                </select>
-              </label>
-
-              <label className="space-y-1.5">
-                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">담당자</span>
-                <select
-                  value={detailDraft.assigneeId}
-                  onChange={(event) => {
-                    const assigneeId = event.target.value;
-                    setDetailDraft((previous) =>
-                      previous
-                        ? {
-                            ...previous,
-                            assigneeId,
-                            participantIds: ensureAssigneeInParticipants(previous.participantIds, assigneeId)
-                          }
-                        : previous
-                    );
-                  }}
-                  className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
-                  disabled={!writable}
-                >
-                  {users.map((user) => (
-                    <option key={`detail-assignee-${user.id}`} value={user.id}>
-                      {user.displayName}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="space-y-1.5">
-                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Owner</span>
-                <select
-                  value={detailDraft.ownerId}
-                  onChange={(event) => setDetailDraft((previous) => (previous ? { ...previous, ownerId: event.target.value } : previous))}
-                  className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
-                  disabled={!writable}
-                >
-                  {users.map((user) => (
-                    <option key={`detail-owner-${user.id}`} value={user.id}>
-                      {user.displayName}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="space-y-1.5">
-                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">마감일</span>
-                <Input
-                  type="date"
-                  value={detailDraft.dueDate}
-                  onChange={(event) => setDetailDraft((previous) => (previous ? { ...previous, dueDate: event.target.value } : previous))}
-                  disabled={!writable}
-                />
-              </label>
-
-              <label className="space-y-1.5">
-                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Visibility</span>
-                <select
-                  value={detailDraft.visibility}
-                  onChange={(event) =>
-                    setDetailDraft((previous) =>
-                      previous
-                        ? {
-                            ...previous,
-                            visibility: event.target.value as "shared" | "private"
-                          }
-                        : previous
-                    )
-                  }
-                  className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
-                  disabled={!writable}
-                >
-                  <option value="shared">shared</option>
-                  <option value="private">private</option>
                 </select>
               </label>
             </div>
 
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">참여자</p>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {users.map((user) => {
-                  const checked = detailDraft.participantIds.includes(user.id) || detailDraft.assigneeId === user.id;
-                  const disabled = detailDraft.assigneeId === user.id || !writable;
+            <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3 dark:border-zinc-700/80 dark:bg-zinc-900/60">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">참여자</p>
+                  <div className="mt-2">
+                    <UserAutocompleteMultiSelect
+                      options={userAutocompleteOptions}
+                      selectedIds={ensureAssigneeInParticipants(detailDraft.participantIds, detailDraft.assigneeId)}
+                      lockedIds={detailDraft.assigneeId ? [detailDraft.assigneeId] : []}
+                      onChange={(nextSelectedIds) =>
+                        setDetailDraft((previous) =>
+                          previous
+                            ? {
+                                ...previous,
+                                participantIds: ensureAssigneeInParticipants(nextSelectedIds, previous.assigneeId)
+                              }
+                            : previous
+                        )
+                      }
+                      placeholder="참여자 이름 입력"
+                      inputClassName="h-10"
+                      disabled={!writable}
+                    />
+                  </div>
+                </div>
 
-                  return (
-                    <label
-                      key={`detail-participant-${user.id}`}
-                      className="flex items-center gap-2 rounded-md border border-zinc-200/80 px-2.5 py-2 text-sm dark:border-zinc-700/80"
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">공개 범위</p>
+                  <div className="mt-2 inline-flex rounded-lg border border-zinc-200 bg-white p-1 dark:border-zinc-700 dark:bg-zinc-900">
+                    <button
+                      type="button"
+                      className={cn(
+                        "rounded-md px-3 py-1.5 text-xs font-semibold transition",
+                        detailDraft.visibility === "shared"
+                          ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                          : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                      )}
+                      onClick={() =>
+                        setDetailDraft((previous) =>
+                          previous
+                            ? {
+                                ...previous,
+                                visibility: "shared"
+                              }
+                            : previous
+                        )
+                      }
+                      disabled={!writable}
                     >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={disabled}
-                        onChange={(event) => {
-                          const nextChecked = event.target.checked;
-                          setDetailDraft((previous) => {
-                            if (!previous) return previous;
-
-                            const has = previous.participantIds.includes(user.id);
-                            const participantIds = nextChecked
-                              ? has
-                                ? previous.participantIds
-                                : [...previous.participantIds, user.id]
-                              : previous.participantIds.filter((participantId) => participantId !== user.id);
-
-                            return {
-                              ...previous,
-                              participantIds: ensureAssigneeInParticipants(participantIds, previous.assigneeId)
-                            };
-                          });
-                        }}
-                      />
-                      <span>{user.displayName}</span>
-                    </label>
-                  );
-                })}
+                      shared
+                    </button>
+                    <button
+                      type="button"
+                      className={cn(
+                        "rounded-md px-3 py-1.5 text-xs font-semibold transition",
+                        detailDraft.visibility === "private"
+                          ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                          : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                      )}
+                      onClick={() =>
+                        setDetailDraft((previous) =>
+                          previous
+                            ? {
+                                ...previous,
+                                visibility: "private"
+                              }
+                            : previous
+                        )
+                      }
+                      disabled={!writable}
+                    >
+                      private
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1876,15 +1872,24 @@ function KanbanTaskCard({
 
   const quickAction = getQuickAction(stage);
   const QuickActionIcon = quickAction.icon;
+  const { onKeyDown: sortableOnKeyDown, ...sortableListeners } = listeners ?? {};
 
   return (
     <article
       ref={setNodeRef}
       style={style}
       {...attributes}
-      {...listeners}
+      {...sortableListeners}
+      tabIndex={0}
       onFocus={() => onFocus(task.id)}
       onClick={() => onFocus(task.id)}
+      onKeyDown={(event) => {
+        sortableOnKeyDown?.(event);
+        if (event.defaultPrevented || event.currentTarget !== event.target) return;
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onOpenDetail(task.id);
+      }}
       onDoubleClick={(event) => {
         if (event.button !== 0) return;
         onOpenDetail(task.id);
@@ -1895,11 +1900,12 @@ function KanbanTaskCard({
         taskSurfaceTone(stage),
         writable ? "cursor-grab active:cursor-grabbing" : "",
         writable && !isDragging && "hover:shadow-md",
-        highlighted && "border-violet-300/80 ring-2 ring-violet-200/70 dark:border-violet-700/70 dark:ring-violet-900/65",
+        highlighted &&
+          "border-fuchsia-400/80 bg-fuchsia-100/85 ring-2 ring-fuchsia-300/75 shadow-[0_0_0_2px_rgba(217,70,239,0.22)] dark:border-fuchsia-600/75 dark:bg-fuchsia-900/45 dark:ring-fuchsia-700/70 dark:shadow-[0_0_0_2px_rgba(192,38,211,0.22)]",
         focused && "ring-2 ring-zinc-300 dark:ring-zinc-600",
         isDragging && "opacity-55"
       )}
-      title="더블 클릭해서 상세 보기"
+      title="더블 클릭 또는 Enter/Space로 상세 보기"
     >
       <span className={cn("mb-1 block h-1.5 w-9 rounded-full", taskAccentTone(stage))} />
       <div className="flex items-start gap-2">

@@ -9,7 +9,7 @@ import { FeatureAccessDenied } from "@/components/app/feature-access";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { canRead } from "@/lib/permissions/roles";
+import { canRead, canWrite } from "@/lib/permissions/roles";
 import { getCurrentUser, getEffectiveRoleForFeature, useVisualKanbanStore } from "@/lib/store";
 import type { WhiteboardSceneData } from "@/lib/types";
 import { cn } from "@/lib/utils/cn";
@@ -47,19 +47,20 @@ export default function WhiteboardPage() {
   const [newProjectName, setNewProjectName] = useState("");
   const projectPopupRef = useRef<HTMLDivElement>(null);
 
-  const { users, currentUserId, projects, permissions, tasks, connectedUserIds, addProject, whiteboardScenes, saveWhiteboardScene } = useVisualKanbanStore(
-    useShallow((state) => ({
-      users: state.users,
-      currentUserId: state.currentUserId,
-      projects: state.projects,
-      permissions: state.permissions,
-      tasks: state.tasks,
-      connectedUserIds: state.connectedUserIds,
-      addProject: state.addProject,
-      whiteboardScenes: state.whiteboardScenes,
-      saveWhiteboardScene: state.saveWhiteboardScene
-    }))
-  );
+  const { users, currentUserId, projects, projectMemberships, permissions, connectedUserIds, addProject, whiteboardScenes, saveWhiteboardScene } =
+    useVisualKanbanStore(
+      useShallow((state) => ({
+        users: state.users,
+        currentUserId: state.currentUserId,
+        projects: state.projects,
+        projectMemberships: state.projectMemberships,
+        permissions: state.permissions,
+        connectedUserIds: state.connectedUserIds,
+        addProject: state.addProject,
+        whiteboardScenes: state.whiteboardScenes,
+        saveWhiteboardScene: state.saveWhiteboardScene
+      }))
+    );
 
   const currentUser = useMemo(() => getCurrentUser(users, currentUserId), [users, currentUserId]);
   const project = useMemo(() => projects.find((item) => item.id === projectId) ?? null, [projects, projectId]);
@@ -70,31 +71,18 @@ export default function WhiteboardPage() {
         user: currentUser,
         projectId,
         feature: "mindmap",
-        permissions
+        permissions,
+        projectMemberships,
+        projects
       }),
-    [currentUser, permissions, projectId]
+    [currentUser, permissions, projectId, projectMemberships, projects]
   );
-
-  const editableUserIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const task of tasks) {
-      if (task.projectId !== projectId) continue;
-      ids.add(task.assigneeId);
-      ids.add(task.ownerId);
-      ids.add(task.reporterId);
-      for (const participantId of task.participantIds ?? []) {
-        ids.add(participantId);
-      }
-    }
-    return ids;
-  }, [projectId, tasks]);
 
   const canEditWhiteboard = useMemo(() => {
     if (!currentUser) return false;
     if (!canRead(whiteboardRole)) return false;
-    if (currentUser.baseRole === "admin") return true;
-    return editableUserIds.has(currentUser.id);
-  }, [currentUser, editableUserIds, whiteboardRole]);
+    return canWrite(whiteboardRole);
+  }, [currentUser, whiteboardRole]);
 
   const canCreateProject = useMemo(() => {
     if (!currentUser) return false;
@@ -113,9 +101,18 @@ export default function WhiteboardPage() {
           name: user.displayName,
           icon: (user.icon ?? initials(user.displayName)).slice(0, 4),
           isCurrentUser: currentUserId === user.id,
-          isEditing: user.baseRole === "admin" || editableUserIds.has(user.id)
+          isEditing: canWrite(
+            getEffectiveRoleForFeature({
+              user,
+              projectId,
+              feature: "mindmap",
+              permissions,
+              projectMemberships,
+              projects
+            })
+          )
         })),
-    [connectedUserIds, currentUserId, editableUserIds, users]
+    [connectedUserIds, currentUserId, permissions, projectId, projectMemberships, projects, users]
   );
 
   useEffect(() => {
@@ -190,7 +187,7 @@ export default function WhiteboardPage() {
   );
 
   if (!canRead(whiteboardRole)) {
-    return <FeatureAccessDenied feature="WhiteBoard" />;
+    return <FeatureAccessDenied feature="Whiteboard" />;
   }
 
   if (!project) {
@@ -272,4 +269,3 @@ export default function WhiteboardPage() {
     </section>
   );
 }
-
