@@ -128,6 +128,7 @@ Domain Specialists:
 - `/prompts:scientist`: Data/statistical analysis
 - `/prompts:git-master`: Commit strategy, history hygiene
 - `/prompts:researcher`: External documentation and reference research
+- `/prompts:visualkanban-developer`: VisualKanban 실전 노하우 기반 구현/리뷰 조언
 
 Product Lane:
 - `/prompts:product-manager`: Problem framing, personas/JTBD, PRDs

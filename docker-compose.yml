@@ -1,4 +1,3 @@
-version: "3.9"
 services:
   postgres:
     image: postgres:16-alpine
@@ -19,7 +18,10 @@ services:
     restart: unless-stopped
 
   visualkanban:
-    build: .
+    image: visualkanban:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: visualkanban
     depends_on:
       postgres:
@@ -35,6 +37,12 @@ services:
       NEXT_PUBLIC_VK_STATE_SYNC_ENABLED: ${NEXT_PUBLIC_VK_STATE_SYNC_ENABLED:-true}
       NEXT_PUBLIC_VK_STATE_SYNC_POLL_INTERVAL_MS: ${NEXT_PUBLIC_VK_STATE_SYNC_POLL_INTERVAL_MS:-5000}
       NEXT_PUBLIC_VK_STATE_WORKSPACE_ID: ${NEXT_PUBLIC_VK_STATE_WORKSPACE_ID:-main}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:3000/login || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     restart: unless-stopped
 
 volumes:
