@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import {
+  SEED_DATA_REVISION,
   seedActivities,
   seedKanbanHistory,
   seedKanbanTasks,
@@ -39,6 +40,7 @@ import type {
   WorkspaceStylePreset,
   WhiteboardScene,
   WhiteboardSceneData,
+  VisualKanbanSharedSnapshot,
   VisualKanbanState
 } from "@/lib/types";
 
@@ -75,6 +77,25 @@ const WORKSPACE_STYLE_PRESETS = new Set<WorkspaceStylePreset>([
 const FEATURE_KEYS: FeatureKey[] = ["project", "kanban", "whiteboard", "gantt", "taskboard", "todo", "search"];
 const FEATURE_KEY_SET = new Set<string>(FEATURE_KEYS);
 const ACTIVITY_TYPE_SET = new Set<string>(["login", "task_move", "permission_change", "task_create"]);
+const SESSION_LOCAL_STATE_KEYS = ["currentUserId", "connectedUserIds", "sessionCheckedAt"] as const;
+const CURRENT_SEED_REVISION = SEED_DATA_REVISION;
+export const VISUAL_KANBAN_SHARED_SNAPSHOT_KEYS = [
+  "seedRevision",
+  "users",
+  "projects",
+  "projectMemberships",
+  "permissions",
+  "personalTodos",
+  "tasks",
+  "kanbanTasks",
+  "kanbanHistory",
+  "whiteboardScenes",
+  "activities",
+  "workspacePreferencesByAccountId",
+  "recentProjectIdByAccountId"
+] as const satisfies readonly (keyof VisualKanbanSharedSnapshot)[];
+type VisualKanbanSharedSnapshotKey = (typeof VISUAL_KANBAN_SHARED_SNAPSHOT_KEYS)[number];
+type SessionLocalStateKey = (typeof SESSION_LOCAL_STATE_KEYS)[number];
 
 function normalizeWorkspaceLanguage(language: WorkspaceLanguage | null | undefined): WorkspaceLanguage {
   return language === "en" ? "en" : "ko";
@@ -607,9 +628,83 @@ function canCurrentUserWriteFeature({
   );
 }
 
+function pickSessionLocalState(state: Pick<VisualKanbanState, SessionLocalStateKey>) {
+  return {
+    currentUserId: state.currentUserId,
+    connectedUserIds: state.connectedUserIds,
+    sessionCheckedAt: state.sessionCheckedAt
+  };
+}
+
+export function getSharedStateSnapshot(state: Pick<VisualKanbanState, VisualKanbanSharedSnapshotKey>): VisualKanbanSharedSnapshot {
+  return {
+    seedRevision: state.seedRevision,
+    users: state.users,
+    projects: state.projects,
+    projectMemberships: state.projectMemberships,
+    permissions: state.permissions,
+    personalTodos: state.personalTodos,
+    tasks: state.tasks,
+    kanbanTasks: state.kanbanTasks,
+    kanbanHistory: state.kanbanHistory,
+    whiteboardScenes: state.whiteboardScenes,
+    activities: state.activities,
+    workspacePreferencesByAccountId: state.workspacePreferencesByAccountId,
+    recentProjectIdByAccountId: state.recentProjectIdByAccountId
+  };
+}
+
+function mergeSharedStateSnapshot(
+  state: VisualKanbanState,
+  snapshot: Partial<VisualKanbanSharedSnapshot>
+): Pick<VisualKanbanState, VisualKanbanSharedSnapshotKey> {
+  const localCurrentUser = getCurrentUser(state.users, state.currentUserId);
+  const incomingUsers = snapshot.users;
+  const incomingSnapshotDropsCurrentUser =
+    Boolean(localCurrentUser) && Array.isArray(incomingUsers) && !incomingUsers.some((user) => user.id === localCurrentUser?.id);
+
+  if (incomingSnapshotDropsCurrentUser) {
+    // Guard against stale/conflicting remote snapshots that would effectively force logout
+    // by removing the currently logged-in user from the shared user list.
+    const sessionLocalState = pickSessionLocalState(state);
+    const normalizedCurrentState = {
+      ...sanitizeLegacySeedAccounts(state),
+      ...sessionLocalState
+    };
+
+    return getSharedStateSnapshot(normalizedCurrentState);
+  }
+
+  const mergedState: VisualKanbanState = {
+    ...state,
+    seedRevision: snapshot.seedRevision ?? state.seedRevision,
+    users: snapshot.users ?? state.users,
+    projects: snapshot.projects ?? state.projects,
+    projectMemberships: snapshot.projectMemberships ?? state.projectMemberships,
+    permissions: snapshot.permissions ?? state.permissions,
+    personalTodos: snapshot.personalTodos ?? state.personalTodos,
+    tasks: snapshot.tasks ?? state.tasks,
+    kanbanTasks: snapshot.kanbanTasks ?? state.kanbanTasks,
+    kanbanHistory: snapshot.kanbanHistory ?? state.kanbanHistory,
+    whiteboardScenes: snapshot.whiteboardScenes ?? state.whiteboardScenes,
+    activities: snapshot.activities ?? state.activities,
+    workspacePreferencesByAccountId: snapshot.workspacePreferencesByAccountId ?? state.workspacePreferencesByAccountId,
+    recentProjectIdByAccountId: snapshot.recentProjectIdByAccountId ?? state.recentProjectIdByAccountId
+  };
+
+  const sessionLocalState = pickSessionLocalState(state);
+  const normalizedMergedState = {
+    ...sanitizeLegacySeedAccounts(mergedState),
+    ...sessionLocalState
+  };
+
+  return getSharedStateSnapshot(normalizedMergedState);
+}
+
 export const useVisualKanbanStore = create<VisualKanbanState>()(
   persist(
     (set, get) => ({
+      seedRevision: CURRENT_SEED_REVISION,
       users: seedUsers,
       projects: seedProjects,
       projectMemberships: seedProjectMemberships,
@@ -1818,13 +1913,52 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
             [currentUserId]: normalizedProjectId
           }
         }));
-      }
+      },
+
+      replaceSharedState: (snapshot) => {
+        set((state) => {
+          const mergedSharedState = mergeSharedStateSnapshot(state, snapshot);
+          const currentUserId = state.currentUserId;
+
+          if (!currentUserId) {
+            return mergedSharedState;
+          }
+
+          const resolvedWorkspacePreference = resolveAccountWorkspacePreference({
+            accountId: currentUserId,
+            workspacePreferencesByAccountId: mergedSharedState.workspacePreferencesByAccountId,
+            fallbackLanguage: state.workspaceLanguage,
+            fallbackStyle: state.workspaceStyle
+          });
+
+          return {
+            ...mergedSharedState,
+            workspaceLanguage: resolvedWorkspacePreference.language,
+            workspaceStyle: resolvedWorkspacePreference.style
+          };
+        });
+      },
+
+      getSharedStateSnapshot: () => getSharedStateSnapshot(get())
     }),
     {
       name: "visual-kanban-state",
       storage: persistStorage,
       merge: (persistedState, currentState) => {
-        const persistedEntries = Object.entries((persistedState as Record<string, unknown>) ?? {}).filter(([key]) => key in currentState);
+        const persistedRecord = (persistedState as Record<string, unknown>) ?? {};
+        const persistedSeedRevisionRaw = persistedRecord.seedRevision;
+        const persistedSeedRevision =
+          typeof persistedSeedRevisionRaw === "number" && Number.isFinite(persistedSeedRevisionRaw)
+            ? Math.trunc(persistedSeedRevisionRaw)
+            : typeof persistedSeedRevisionRaw === "string" && persistedSeedRevisionRaw.trim().length > 0
+              ? Math.trunc(Number.parseInt(persistedSeedRevisionRaw, 10))
+              : null;
+
+        if (persistedSeedRevision !== CURRENT_SEED_REVISION) {
+          return sanitizeLegacySeedAccounts(currentState);
+        }
+
+        const persistedEntries = Object.entries(persistedRecord).filter(([key]) => key in currentState);
         const restPersistedState = Object.fromEntries(persistedEntries);
 
         return sanitizeLegacySeedAccounts({
@@ -1833,6 +1967,7 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
         } as VisualKanbanState);
       },
       partialize: (state) => ({
+        seedRevision: state.seedRevision,
         users: state.users,
         projects: state.projects,
         projectMemberships: state.projectMemberships,

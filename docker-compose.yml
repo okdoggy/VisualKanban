@@ -1,11 +1,41 @@
 version: "3.9"
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: visualkanban-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-visualkanban}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-visualkanban}
+      POSTGRES_DB: ${POSTGRES_DB:-visualkanban}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - visualkanban-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-visualkanban} -d ${POSTGRES_DB:-visualkanban}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
   visualkanban:
     build: .
     container_name: visualkanban
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "3000:3000"
     environment:
-      - NODE_ENV=production
-      - PORT=3000
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: ${DATABASE_URL:-postgresql://visualkanban:visualkanban@postgres:5432/visualkanban}
+      VK_STATE_SYNC_ENABLED: ${VK_STATE_SYNC_ENABLED:-true}
+      VK_STATE_SYNC_POLL_INTERVAL_MS: ${VK_STATE_SYNC_POLL_INTERVAL_MS:-5000}
+      NEXT_PUBLIC_VK_STATE_SYNC_ENABLED: ${NEXT_PUBLIC_VK_STATE_SYNC_ENABLED:-true}
+      NEXT_PUBLIC_VK_STATE_SYNC_POLL_INTERVAL_MS: ${NEXT_PUBLIC_VK_STATE_SYNC_POLL_INTERVAL_MS:-5000}
+      NEXT_PUBLIC_VK_STATE_WORKSPACE_ID: ${NEXT_PUBLIC_VK_STATE_WORKSPACE_ID:-main}
     restart: unless-stopped
+
+volumes:
+  visualkanban-postgres-data:

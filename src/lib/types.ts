@@ -148,7 +148,24 @@ export interface Activity {
   createdAt: string;
 }
 
+export interface VisualKanbanSharedSnapshot {
+  seedRevision: number;
+  users: User[];
+  projects: Project[];
+  projectMemberships: ProjectMembership[];
+  permissions: PermissionAssignment[];
+  personalTodos: PersonalTodo[];
+  tasks: Task[];
+  kanbanTasks: Task[];
+  kanbanHistory: KanbanHistoryItem[];
+  whiteboardScenes: WhiteboardScene[];
+  activities: Activity[];
+  workspacePreferencesByAccountId: Record<string, AccountWorkspacePreference>;
+  recentProjectIdByAccountId: Record<string, string>;
+}
+
 export interface VisualKanbanState {
+  seedRevision: number;
   users: User[];
   projects: Project[];
   projectMemberships: ProjectMembership[];
@@ -206,4 +223,6 @@ export interface VisualKanbanState {
   setWorkspaceLanguage: (nextLanguage: WorkspaceLanguage) => void;
   setWorkspaceStyle: (nextStyle: WorkspaceStyle) => void;
   setRecentProjectForCurrentAccount: (projectId: string) => void;
+  replaceSharedState: (snapshot: Partial<VisualKanbanSharedSnapshot>) => void;
+  getSharedStateSnapshot: () => VisualKanbanSharedSnapshot;
 }
