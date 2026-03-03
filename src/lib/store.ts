@@ -78,6 +78,7 @@ const FEATURE_KEYS: FeatureKey[] = ["project", "kanban", "whiteboard", "gantt", 
 const FEATURE_KEY_SET = new Set<string>(FEATURE_KEYS);
 const ACTIVITY_TYPE_SET = new Set<string>(["login", "task_move", "permission_change", "task_create"]);
 const SESSION_LOCAL_STATE_KEYS = ["currentUserId", "connectedUserIds", "sessionCheckedAt"] as const;
+const LOCAL_PERSIST_STATE_KEYS = [...SESSION_LOCAL_STATE_KEYS, "workspaceLanguage", "workspaceStyle"] as const;
 const CURRENT_SEED_REVISION = SEED_DATA_REVISION;
 export const VISUAL_KANBAN_SHARED_SNAPSHOT_KEYS = [
   "seedRevision",
@@ -96,6 +97,7 @@ export const VISUAL_KANBAN_SHARED_SNAPSHOT_KEYS = [
 ] as const satisfies readonly (keyof VisualKanbanSharedSnapshot)[];
 type VisualKanbanSharedSnapshotKey = (typeof VISUAL_KANBAN_SHARED_SNAPSHOT_KEYS)[number];
 type SessionLocalStateKey = (typeof SESSION_LOCAL_STATE_KEYS)[number];
+type LocalPersistStateKey = (typeof LOCAL_PERSIST_STATE_KEYS)[number];
 
 function normalizeWorkspaceLanguage(language: WorkspaceLanguage | null | undefined): WorkspaceLanguage {
   return language === "en" ? "en" : "ko";
@@ -387,7 +389,19 @@ function cloneTaskSnapshot(task: Task): Task {
   return {
     ...task,
     participantIds: task.participantIds ? [...task.participantIds] : undefined,
-    tags: [...task.tags]
+    tags: [...task.tags],
+    attachments: task.attachments?.map((attachment) => ({
+      ...attachment,
+      kind: attachment.kind ?? (attachment.mimeType?.startsWith("image/") ? "image" : "document")
+    })),
+    comments: task.comments?.map((comment) => ({
+      ...comment,
+      taskId: comment.taskId || task.id,
+      attachments: comment.attachments.map((attachment) => ({
+        ...attachment,
+        kind: attachment.kind ?? (attachment.mimeType?.startsWith("image/") ? "image" : "document")
+      }))
+    }))
   };
 }
 
@@ -446,6 +460,7 @@ function sanitizeLegacySeedAccounts(state: VisualKanbanState): VisualKanbanState
   });
 
   const validUserIds = new Set(users.map((user) => user.id));
+  const userDisplayNameById = new Map(users.map((user) => [user.id, user.displayName]));
   const fallbackUserId = users.find((user) => user.username.trim().toLowerCase() === "admin")?.id ?? users[0]?.id;
   if (!fallbackUserId) {
     return {
@@ -467,13 +482,64 @@ function sanitizeLegacySeedAccounts(state: VisualKanbanState): VisualKanbanState
     const reporterId = normalizeUserId(task.reporterId);
     const ownerId = normalizeUserId(task.ownerId);
     const participantIds = normalizeParticipantIds(task.participantIds, assigneeId);
+    const normalizedAttachments = task.attachments?.map((attachment) => {
+      const createdBy = normalizeUserId(attachment.createdBy);
+      const kind = attachment.kind ?? (attachment.mimeType?.startsWith("image/") ? "image" : "document");
+      return createdBy === attachment.createdBy
+        ? kind === attachment.kind
+          ? attachment
+          : {
+              ...attachment,
+              kind
+            }
+        : {
+            ...attachment,
+            createdBy,
+            kind
+          };
+    });
+    const normalizedComments = task.comments?.map((comment) => {
+      const authorId = normalizeUserId(comment.authorId);
+      const normalizedCommentAttachments = comment.attachments?.map((attachment) => {
+        const createdBy = normalizeUserId(attachment.createdBy);
+        const kind = attachment.kind ?? (attachment.mimeType?.startsWith("image/") ? "image" : "document");
+        return createdBy === attachment.createdBy
+          ? kind === attachment.kind
+            ? attachment
+            : {
+                ...attachment,
+                kind
+              }
+          : {
+              ...attachment,
+              createdBy,
+              kind
+            };
+      });
+
+      return {
+        ...comment,
+        taskId: task.id,
+        authorId,
+        authorName: userDisplayNameById.get(authorId) ?? comment.authorName,
+        attachments: normalizedCommentAttachments ?? []
+      };
+    });
+    const normalizedAttachmentsList = normalizedAttachments ?? [];
+    const taskAttachments = task.attachments ?? [];
+    const normalizedCommentsList = normalizedComments ?? [];
+    const taskComments = task.comments ?? [];
 
     if (
       assigneeId === task.assigneeId &&
       reporterId === task.reporterId &&
       ownerId === task.ownerId &&
       participantIds.length === (task.participantIds?.length ?? 0) &&
-      participantIds.every((id, index) => id === (task.participantIds ?? [])[index])
+      participantIds.every((id, index) => id === (task.participantIds ?? [])[index]) &&
+      normalizedAttachmentsList.length === taskAttachments.length &&
+      normalizedAttachmentsList.every((attachment, index) => attachment === taskAttachments[index]) &&
+      normalizedCommentsList.length === taskComments.length &&
+      normalizedCommentsList.every((comment, index) => comment === taskComments[index])
     ) {
       return task;
     }
@@ -483,7 +549,9 @@ function sanitizeLegacySeedAccounts(state: VisualKanbanState): VisualKanbanState
       assigneeId,
       reporterId,
       ownerId,
-      participantIds
+      participantIds,
+      attachments: task.attachments ? normalizedAttachmentsList : undefined,
+      comments: task.comments ? normalizedCommentsList : undefined
     };
   };
 
@@ -658,23 +726,6 @@ function mergeSharedStateSnapshot(
   state: VisualKanbanState,
   snapshot: Partial<VisualKanbanSharedSnapshot>
 ): Pick<VisualKanbanState, VisualKanbanSharedSnapshotKey> {
-  const localCurrentUser = getCurrentUser(state.users, state.currentUserId);
-  const incomingUsers = snapshot.users;
-  const incomingSnapshotDropsCurrentUser =
-    Boolean(localCurrentUser) && Array.isArray(incomingUsers) && !incomingUsers.some((user) => user.id === localCurrentUser?.id);
-
-  if (incomingSnapshotDropsCurrentUser) {
-    // Guard against stale/conflicting remote snapshots that would effectively force logout
-    // by removing the currently logged-in user from the shared user list.
-    const sessionLocalState = pickSessionLocalState(state);
-    const normalizedCurrentState = {
-      ...sanitizeLegacySeedAccounts(state),
-      ...sessionLocalState
-    };
-
-    return getSharedStateSnapshot(normalizedCurrentState);
-  }
-
   const mergedState: VisualKanbanState = {
     ...state,
     seedRevision: snapshot.seedRevision ?? state.seedRevision,
@@ -1428,6 +1479,8 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
           order: normalizedOrder,
           visibility: input.visibility,
           tags: [],
+          attachments: [],
+          comments: [],
           updatedAt: nowIso()
         };
 
@@ -1443,15 +1496,13 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       addKanbanTask: (input) => {
         const state = get();
         const currentUserId = state.currentUserId;
-        if (!currentUserId) return;
-        if (
-          !canCurrentUserWriteFeature({
-            state,
-            projectId: input.projectId,
-            feature: "kanban"
-          })
-        ) {
-          return;
+        if (!currentUserId) {
+          return { ok: false, reason: "로그인이 필요합니다." };
+        }
+
+        const projectExists = state.projects.some((project) => project.id === input.projectId);
+        if (!projectExists) {
+          return { ok: false, reason: "프로젝트를 찾지 못했습니다." };
         }
 
         const kanbanTasks = state.kanbanTasks;
@@ -1485,6 +1536,8 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
             order: normalizedOrder,
             visibility: input.visibility,
             tags: [...rawTags],
+            attachments: [],
+            comments: [],
             updatedAt: nowIso()
           },
           input.status ?? "todo",
@@ -1498,6 +1551,8 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
             ...state.activities
           ].slice(0, 200)
         }));
+
+        return { ok: true, taskId: newTask.id };
       },
 
       updateKanbanTask: (taskId, patch: KanbanTaskPatch) => {
@@ -1556,6 +1611,45 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
         }));
 
         return { ok: true };
+      },
+
+      removeKanbanTask: (taskId) => {
+        const state = get();
+        const currentUserId = state.currentUserId;
+        if (!currentUserId) {
+          return { ok: false, reason: "로그인이 필요합니다." };
+        }
+
+        const target = state.kanbanTasks.find((task) => task.id === taskId);
+        if (!target) {
+          return { ok: false, reason: "태스크를 찾지 못했습니다." };
+        }
+        if (
+          !canCurrentUserWriteFeature({
+            state,
+            projectId: target.projectId,
+            feature: "kanban"
+          })
+        ) {
+          return { ok: false, reason: "칸반 편집 권한이 없습니다." };
+        }
+
+        const removedTaskIds = collectTaskAndDescendantIds(state.kanbanTasks, taskId);
+        const removedTaskIdSet = new Set(removedTaskIds);
+
+        set((prevState) => ({
+          kanbanTasks: prevState.kanbanTasks.filter((task) => !removedTaskIdSet.has(task.id)),
+          activities: [
+            makeActivity({
+              actorId: currentUserId,
+              type: "task_move",
+              message: `칸반 태스크 삭제: ${target.title}${removedTaskIds.length > 1 ? ` (+${removedTaskIds.length - 1} 하위)` : ""}`
+            }),
+            ...prevState.activities
+          ].slice(0, 200)
+        }));
+
+        return { ok: true, removedTaskIds };
       },
 
       finalizeKanbanTask: (taskId) => {
@@ -1946,46 +2040,46 @@ export const useVisualKanbanStore = create<VisualKanbanState>()(
       storage: persistStorage,
       merge: (persistedState, currentState) => {
         const persistedRecord = (persistedState as Record<string, unknown>) ?? {};
-        const persistedSeedRevisionRaw = persistedRecord.seedRevision;
-        const persistedSeedRevision =
-          typeof persistedSeedRevisionRaw === "number" && Number.isFinite(persistedSeedRevisionRaw)
-            ? Math.trunc(persistedSeedRevisionRaw)
-            : typeof persistedSeedRevisionRaw === "string" && persistedSeedRevisionRaw.trim().length > 0
-              ? Math.trunc(Number.parseInt(persistedSeedRevisionRaw, 10))
-              : null;
+        const persistedConnectedUserIds = Array.isArray(persistedRecord.connectedUserIds)
+          ? [
+              ...new Set(
+                persistedRecord.connectedUserIds
+                  .filter((entry): entry is string => typeof entry === "string")
+                  .map((entry) => entry.trim())
+                  .filter((entry) => entry.length > 0)
+              )
+            ]
+          : currentState.connectedUserIds;
+        const persistedCurrentUserId =
+          typeof persistedRecord.currentUserId === "string" && persistedRecord.currentUserId.trim().length > 0
+            ? persistedRecord.currentUserId.trim()
+            : currentState.currentUserId;
+        const persistedSessionCheckedAt =
+          typeof persistedRecord.sessionCheckedAt === "string" && persistedRecord.sessionCheckedAt.trim().length > 0
+            ? persistedRecord.sessionCheckedAt.trim()
+            : currentState.sessionCheckedAt;
+        const persistedWorkspaceLanguage =
+          "workspaceLanguage" in persistedRecord
+            ? normalizeWorkspaceLanguage(persistedRecord.workspaceLanguage as WorkspaceLanguage | null | undefined)
+            : currentState.workspaceLanguage;
+        const persistedWorkspaceStyle =
+          "workspaceStyle" in persistedRecord
+            ? normalizeWorkspaceStyle(persistedRecord.workspaceStyle as WorkspaceStyle | string | null | undefined)
+            : currentState.workspaceStyle;
 
-        if (persistedSeedRevision !== CURRENT_SEED_REVISION) {
-          return sanitizeLegacySeedAccounts(currentState);
-        }
+        const normalizedState = sanitizeLegacySeedAccounts(currentState);
 
-        const persistedEntries = Object.entries(persistedRecord).filter(([key]) => key in currentState);
-        const restPersistedState = Object.fromEntries(persistedEntries);
-
-        return sanitizeLegacySeedAccounts({
-          ...currentState,
-          ...(restPersistedState as Partial<VisualKanbanState>)
-        } as VisualKanbanState);
+        return {
+          ...normalizedState,
+          currentUserId: persistedCurrentUserId,
+          connectedUserIds: persistedConnectedUserIds,
+          sessionCheckedAt: persistedSessionCheckedAt,
+          workspaceLanguage: persistedWorkspaceLanguage,
+          workspaceStyle: persistedWorkspaceStyle
+        };
       },
-      partialize: (state) => ({
-        seedRevision: state.seedRevision,
-        users: state.users,
-        projects: state.projects,
-        projectMemberships: state.projectMemberships,
-        permissions: state.permissions,
-        personalTodos: state.personalTodos,
-        tasks: state.tasks,
-        kanbanTasks: state.kanbanTasks,
-        kanbanHistory: state.kanbanHistory,
-        whiteboardScenes: state.whiteboardScenes,
-        activities: state.activities,
-        currentUserId: state.currentUserId,
-        connectedUserIds: state.connectedUserIds,
-        sessionCheckedAt: state.sessionCheckedAt,
-        workspaceLanguage: state.workspaceLanguage,
-        workspaceStyle: state.workspaceStyle,
-        workspacePreferencesByAccountId: state.workspacePreferencesByAccountId,
-        recentProjectIdByAccountId: state.recentProjectIdByAccountId
-      })
+      partialize: (state) =>
+        Object.fromEntries(LOCAL_PERSIST_STATE_KEYS.map((key) => [key, state[key]])) as Pick<VisualKanbanState, LocalPersistStateKey>
     }
   )
 );

@@ -39,7 +39,7 @@
 ## 3) 데이터 저장 구조
 
 ### 저장 방식
-- 클라이언트 상태: Zustand (persist)
+- 클라이언트 상태: Zustand (세션/뷰 상태만 로컬 persist)
 - 서버 공유 상태: PostgreSQL (`/api/state`)
 - 동기화 방식: optimistic concurrency (`expectedVersion`) + 충돌 시 재동기화
 
@@ -87,6 +87,9 @@ npm run dev
 cp .env.example .env
 docker compose up -d --build
 ```
+
+> Docker Compose 실행 시 앱 컨테이너는 `VK_DATABASE_URL` 값을 사용합니다.  
+> `.env`의 `DATABASE_URL`이 `localhost`여도 컨테이너 내부 DB 연결에는 영향을 주지 않습니다.
 
 - App: http://localhost:3000
 - Postgres: `localhost:${POSTGRES_PORT:-5432}`
@@ -148,7 +151,8 @@ npm run docker:down
 `.env.example` 참고:
 
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT` (Docker DB 기본값)
-- `DATABASE_URL` (필수)
+- `DATABASE_URL` (로컬 실행용, 필수)
+- `VK_DATABASE_URL` (Docker Compose 앱 컨테이너용, 기본 제공)
 - `PGSSLMODE`, `PGSSL_REJECT_UNAUTHORIZED` (선택)
 - `VK_STATE_SYNC_ENABLED`, `VK_STATE_SYNC_POLL_INTERVAL_MS`
 - `NEXT_PUBLIC_VK_STATE_SYNC_ENABLED`

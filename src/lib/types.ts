@@ -13,6 +13,7 @@ export type FeatureKey =
 
 export type TaskStatus = "backlog" | "in_progress" | "done";
 export type TaskPriority = "low" | "medium" | "high";
+export type TaskAttachmentKind = "image" | "document";
 export type TodoPriority = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 export type TodoRecurrenceType = "none" | "daily" | "weekly";
 export type TodoWeekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
@@ -65,6 +66,27 @@ export interface PermissionAssignment {
   updatedAt: string;
 }
 
+export interface TaskAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  kind: TaskAttachmentKind;
+  size: number;
+  dataUrl: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface TaskComment {
+  id: string;
+  taskId: string;
+  authorId: string;
+  authorName: string;
+  message: string;
+  createdAt: string;
+  attachments: TaskAttachment[];
+}
+
 export interface Task {
   id: string;
   projectId: string;
@@ -83,6 +105,8 @@ export interface Task {
   order?: number;
   visibility: "shared" | "private";
   tags: string[];
+  attachments?: TaskAttachment[];
+  comments?: TaskComment[];
   updatedAt: string;
 }
 
@@ -209,9 +233,10 @@ export interface VisualKanbanState {
   saveWhiteboardScene: (projectId: string, scene: WhiteboardSceneData) => { ok: boolean; reason?: string };
 
   addTask: (input: AddTaskInput) => void;
-  addKanbanTask: (input: AddTaskInput) => void;
+  addKanbanTask: (input: AddTaskInput) => { ok: boolean; reason?: string; taskId?: string };
   updateKanbanTask: (taskId: string, patch: KanbanTaskPatch) => void;
   moveKanbanTask: (taskId: string, nextStatus: KanbanTaskStatus) => { ok: boolean; reason?: string };
+  removeKanbanTask: (taskId: string) => { ok: boolean; reason?: string; removedTaskIds?: string[] };
   finalizeKanbanTask: (taskId: string) => { ok: boolean; reason?: string };
   restoreKanbanTask: (historyId: string) => { ok: boolean; reason?: string };
   moveTask: (taskId: string, nextStatus: TaskStatus) => { ok: boolean; reason?: string };

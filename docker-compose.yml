@@ -31,14 +31,15 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      DATABASE_URL: ${DATABASE_URL:-postgresql://visualkanban:visualkanban@postgres:5432/visualkanban}
+      HOSTNAME: 0.0.0.0
+      DATABASE_URL: ${VK_DATABASE_URL:-postgresql://visualkanban:visualkanban@postgres:5432/visualkanban}
       VK_STATE_SYNC_ENABLED: ${VK_STATE_SYNC_ENABLED:-true}
       VK_STATE_SYNC_POLL_INTERVAL_MS: ${VK_STATE_SYNC_POLL_INTERVAL_MS:-5000}
       NEXT_PUBLIC_VK_STATE_SYNC_ENABLED: ${NEXT_PUBLIC_VK_STATE_SYNC_ENABLED:-true}
       NEXT_PUBLIC_VK_STATE_SYNC_POLL_INTERVAL_MS: ${NEXT_PUBLIC_VK_STATE_SYNC_POLL_INTERVAL_MS:-5000}
       NEXT_PUBLIC_VK_STATE_WORKSPACE_ID: ${NEXT_PUBLIC_VK_STATE_WORKSPACE_ID:-main}
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:3000/login || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/login || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12

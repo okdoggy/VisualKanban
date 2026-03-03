@@ -17,19 +17,26 @@ import { CSS } from "@dnd-kit/utilities";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   CheckCheck,
+  Check,
   CheckSquare2,
   CirclePlus,
+  MessageSquare,
+  Pencil,
+  Paperclip,
   FolderKanban,
   GripVertical,
   Play,
   RotateCcw,
+  Send,
   Square,
+  Trash2,
   UserCheck,
   Users,
   X
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
+  type ChangeEvent,
   type FormEvent,
   type ReactNode,
   useCallback,
@@ -48,7 +55,7 @@ import { Input } from "@/components/ui/input";
 import { UserAutocompleteMultiSelect, UserAutocompleteSelect } from "@/components/ui/user-autocomplete";
 import { canRead, canWrite } from "@/lib/permissions/roles";
 import { getCurrentUser, getEffectiveRoleForFeature, getVisibleTasks, useVisualKanbanStore } from "@/lib/store";
-import type { KanbanHistoryItem, Task, TaskStatus, User } from "@/lib/types";
+import type { KanbanHistoryItem, Task, TaskAttachment, TaskComment, TaskStatus, User } from "@/lib/types";
 import { cn } from "@/lib/utils/cn";
 
 type KanbanStage = TaskStatus | "todo";
@@ -76,6 +83,13 @@ type TaskEditorDraft = {
   participantIds: string[];
   dueDate: string;
   visibility: "shared" | "private";
+  attachments: TaskAttachment[];
+  comments: TaskComment[];
+};
+
+type CommentComposerDraft = {
+  message: string;
+  attachments: TaskAttachment[];
 };
 
 type NormalizedHistoryEntry = {
@@ -89,6 +103,7 @@ type KanbanStoreExtension = {
   kanbanHistory?: Array<Task | KanbanHistoryItem>;
   addKanbanTask?: (input: Record<string, unknown>) => AddMutationResult | void;
   updateKanbanTask?: (taskId: string, patch: Record<string, unknown>) => MutationResult | void;
+  removeKanbanTask?: (taskId: string) => MutationResult | void;
   finalizeKanbanTask?: (taskId: string) => MutationResult | void;
   restoreKanbanTask?: (taskId: string) => MutationResult | void;
 };
@@ -175,6 +190,74 @@ const CARD_INTERACTION_CLASS =
   "transition-[box-shadow,border-color,background-color,opacity] duration-150 ease-out motion-reduce:transition-none";
 const NEO_CARD_CLASS =
   "rounded-2xl border-2 border-zinc-900 bg-white shadow-[4px_4px_0_0_rgb(24,24,27)] dark:border-zinc-100 dark:bg-zinc-900 dark:shadow-[4px_4px_0_0_rgb(0,0,0)]";
+const TASK_ATTACHMENT_ACCEPT = "image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.hwp,.hwpx";
+const MAX_ATTACHMENT_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const MAX_TASK_ATTACHMENTS = 30;
+const MAX_COMMENT_ATTACHMENTS = 10;
+const MAX_TASK_COMMENTS = 200;
+
+function makeClientId(prefix: string) {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+  return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function formatFileSize(size: number) {
+  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)}MB`;
+  if (size >= 1024) return `${Math.round(size / 1024)}KB`;
+  return `${size}B`;
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        resolve(result);
+        return;
+      }
+      reject(new Error("파일을 읽지 못했습니다."));
+    };
+    reader.onerror = () => {
+      reject(new Error("파일을 읽지 못했습니다."));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function resolveAttachmentKind(mimeType: string): TaskAttachment["kind"] {
+  return mimeType.startsWith("image/") ? "image" : "document";
+}
+
+function cloneTaskAttachment(attachment: TaskAttachment): TaskAttachment {
+  const mimeType = attachment.mimeType || "application/octet-stream";
+  return {
+    ...attachment,
+    mimeType,
+    kind: attachment.kind ?? resolveAttachmentKind(mimeType),
+    size: Number.isFinite(attachment.size) ? Math.max(0, Math.trunc(attachment.size)) : 0
+  };
+}
+
+function normalizeTaskAttachments(attachments: TaskAttachment[] | undefined) {
+  return (attachments ?? []).map(cloneTaskAttachment);
+}
+
+function cloneTaskComment(comment: TaskComment): TaskComment {
+  return {
+    ...comment,
+    attachments: comment.attachments.map(cloneTaskAttachment)
+  };
+}
+
+function normalizeTaskComments(comments: TaskComment[] | undefined, taskIdFallback?: string) {
+  return (comments ?? []).map((comment) => ({
+    ...cloneTaskComment(comment),
+    taskId: comment.taskId || taskIdFallback || "unknown-task"
+  }));
+}
 
 function isTaskStatus(value: string): value is TaskStatus {
   return value === "backlog" || value === "in_progress" || value === "done";
@@ -459,7 +542,9 @@ function createNewTaskDraft(projectId: string, currentUserId: string | null, use
     ownerId: fallbackUserId,
     participantIds: fallbackUserId ? [fallbackUserId] : [],
     dueDate: defaultDueDateInput(),
-    visibility: "shared"
+    visibility: "shared",
+    attachments: [],
+    comments: []
   };
 }
 
@@ -477,7 +562,9 @@ function createDetailDraft(task: Task): TaskEditorDraft {
     ownerId: task.ownerId,
     participantIds,
     dueDate: toDateInputValue(task.dueDate),
-    visibility: task.visibility
+    visibility: task.visibility,
+    attachments: normalizeTaskAttachments(task.attachments),
+    comments: normalizeTaskComments(task.comments, task.id)
   };
 }
 
@@ -596,6 +683,7 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
     updateTask,
     addKanbanTask,
     updateKanbanTask,
+    removeKanbanTask,
     finalizeKanbanTask,
     restoreKanbanTask
   } = useVisualKanbanStore(
@@ -615,6 +703,7 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
         updateTask: state.updateTask,
         addKanbanTask: extended.addKanbanTask,
         updateKanbanTask: extended.updateKanbanTask,
+        removeKanbanTask: extended.removeKanbanTask,
         finalizeKanbanTask: extended.finalizeKanbanTask,
         restoreKanbanTask: extended.restoreKanbanTask
       };
@@ -688,6 +777,15 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
 
   const [newTaskDraft, setNewTaskDraft] = useState<TaskEditorDraft>(() => createNewTaskDraft(projectId, currentUserId, users));
   const [detailDraft, setDetailDraft] = useState<TaskEditorDraft | null>(null);
+  const [detailAttachmentUploading, setDetailAttachmentUploading] = useState(false);
+  const [commentDraft, setCommentDraft] = useState<CommentComposerDraft>({
+    message: "",
+    attachments: []
+  });
+  const [commentSubmitting, setCommentSubmitting] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentMessage, setEditingCommentMessage] = useState("");
+  const [commentActionPending, setCommentActionPending] = useState(false);
 
   const visibleTasks = useMemo(() => {
     if (!currentUserId || assignmentViewMode === "all") {
@@ -770,6 +868,12 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
       if (detailTaskId) {
         setDetailTaskId(null);
         setDetailDraft(null);
+        setCommentDraft({
+          message: "",
+          attachments: []
+        });
+        setEditingCommentId(null);
+        setEditingCommentMessage("");
         return;
       }
       if (addTaskPopupOpen) {
@@ -832,6 +936,323 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
       } as AddMutationResult;
     },
     [addKanbanTask, addTask]
+  );
+
+  const toTaskAttachments = useCallback(
+    async (files: FileList, createdBy: string): Promise<TaskAttachment[]> => {
+      const resolved: TaskAttachment[] = [];
+
+      for (const file of Array.from(files)) {
+        if (file.size > MAX_ATTACHMENT_FILE_SIZE_BYTES) {
+          throw new Error(`${file.name}: 파일 크기는 ${formatFileSize(MAX_ATTACHMENT_FILE_SIZE_BYTES)} 이하만 지원합니다.`);
+        }
+
+        const dataUrl = await readFileAsDataUrl(file);
+        const mimeType = file.type || "application/octet-stream";
+        resolved.push({
+          id: makeClientId("task-attachment"),
+          name: file.name,
+          mimeType,
+          kind: resolveAttachmentKind(mimeType),
+          size: file.size,
+          dataUrl,
+          createdAt: new Date().toISOString(),
+          createdBy
+        });
+      }
+
+      return resolved;
+    },
+    []
+  );
+
+  const handleAttachFilesToTask = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      if (!currentUserId || !detailDraft) {
+        event.target.value = "";
+        return;
+      }
+
+      const files = event.target.files;
+      event.target.value = "";
+      if (!files || files.length === 0) {
+        return;
+      }
+
+      setDetailAttachmentUploading(true);
+      try {
+        const uploaded = await toTaskAttachments(files, currentUserId);
+        setDetailDraft((previous) => {
+          if (!previous) return previous;
+
+          const merged = [...previous.attachments, ...uploaded];
+          if (merged.length > MAX_TASK_ATTACHMENTS) {
+            toast.warning(`태스크 첨부는 최대 ${MAX_TASK_ATTACHMENTS}개까지 저장할 수 있습니다.`);
+          }
+
+          return {
+            ...previous,
+            attachments: merged.slice(0, MAX_TASK_ATTACHMENTS)
+          };
+        });
+        toast.success(`${uploaded.length}개 첨부 파일을 추가했습니다. 저장하면 반영됩니다.`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "첨부 파일을 처리하지 못했습니다.";
+        toast.error(message);
+      } finally {
+        setDetailAttachmentUploading(false);
+      }
+    },
+    [currentUserId, detailDraft, toTaskAttachments]
+  );
+
+  const handleRemoveTaskAttachment = useCallback((attachmentId: string) => {
+    setDetailDraft((previous) =>
+      previous
+        ? {
+            ...previous,
+            attachments: previous.attachments.filter((attachment) => attachment.id !== attachmentId)
+          }
+        : previous
+    );
+  }, []);
+
+  const handleAttachFilesToCommentDraft = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      if (!currentUserId) {
+        event.target.value = "";
+        return;
+      }
+
+      const files = event.target.files;
+      event.target.value = "";
+      if (!files || files.length === 0) {
+        return;
+      }
+
+      try {
+        const uploaded = await toTaskAttachments(files, currentUserId);
+        setCommentDraft((previous) => {
+          const merged = [...previous.attachments, ...uploaded];
+          if (merged.length > MAX_COMMENT_ATTACHMENTS) {
+            toast.warning(`댓글 첨부는 최대 ${MAX_COMMENT_ATTACHMENTS}개까지 저장할 수 있습니다.`);
+          }
+
+          return {
+            ...previous,
+            attachments: merged.slice(0, MAX_COMMENT_ATTACHMENTS)
+          };
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "댓글 첨부 파일을 처리하지 못했습니다.";
+        toast.error(message);
+      }
+    },
+    [currentUserId, toTaskAttachments]
+  );
+
+  const handleRemoveCommentAttachment = useCallback((attachmentId: string) => {
+    setCommentDraft((previous) => ({
+      ...previous,
+      attachments: previous.attachments.filter((attachment) => attachment.id !== attachmentId)
+    }));
+  }, []);
+
+  const handleSubmitComment = useCallback(async () => {
+    if (!detailTask || !detailDraft || !currentUserId || !currentUser) {
+      return;
+    }
+
+    if (!writable) {
+      toast.warning("읽기 전용 권한에서는 댓글을 등록할 수 없습니다.");
+      return;
+    }
+
+    const normalizedMessage = commentDraft.message.trim();
+    if (!normalizedMessage && commentDraft.attachments.length === 0) {
+      toast.warning("댓글 또는 첨부 파일을 입력해 주세요.");
+      return;
+    }
+
+    const nextComment: TaskComment = {
+      id: makeClientId("task-comment"),
+      taskId: detailTask.id,
+      authorId: currentUserId,
+      authorName: currentUser.displayName,
+      message: normalizedMessage || "(첨부 파일)",
+      createdAt: new Date().toISOString(),
+      attachments: normalizeTaskAttachments(commentDraft.attachments)
+    };
+
+    const nextComments = [...detailDraft.comments, nextComment].slice(-MAX_TASK_COMMENTS);
+
+    setCommentSubmitting(true);
+    try {
+      const patchResult = patchKanbanTask(detailTask.id, {
+        comments: nextComments
+      });
+
+      if (!patchResult.ok) {
+        toast.error(patchResult.reason ?? "댓글을 등록하지 못했습니다.");
+        return;
+      }
+
+      setDetailDraft((previous) =>
+        previous
+          ? {
+              ...previous,
+              comments: nextComments
+            }
+          : previous
+      );
+      setCommentDraft({
+        message: "",
+        attachments: []
+      });
+      toast.success("댓글을 등록했습니다.");
+    } finally {
+      setCommentSubmitting(false);
+    }
+  }, [commentDraft.attachments, commentDraft.message, currentUser, currentUserId, detailDraft, detailTask, patchKanbanTask, writable]);
+
+  const handleStartEditComment = useCallback(
+    (comment: TaskComment) => {
+      if (!currentUserId || currentUserId !== comment.authorId || !writable) {
+        return;
+      }
+
+      setEditingCommentId(comment.id);
+      setEditingCommentMessage(comment.message);
+    },
+    [currentUserId, writable]
+  );
+
+  const handleCancelEditComment = useCallback(() => {
+    setEditingCommentId(null);
+    setEditingCommentMessage("");
+  }, []);
+
+  const handleSaveEditedComment = useCallback(() => {
+    if (!detailTask || !detailDraft || !editingCommentId || !currentUserId) {
+      return;
+    }
+
+    if (!writable) {
+      toast.warning("읽기 전용 권한에서는 댓글을 수정할 수 없습니다.");
+      return;
+    }
+
+    const targetComment = detailDraft.comments.find((comment) => comment.id === editingCommentId);
+    if (!targetComment) {
+      toast.error("수정할 댓글을 찾지 못했습니다.");
+      return;
+    }
+
+    if (targetComment.authorId !== currentUserId) {
+      toast.error("작성한 댓글만 수정할 수 있습니다.");
+      return;
+    }
+
+    const trimmedMessage = editingCommentMessage.trim();
+    if (!trimmedMessage) {
+      toast.warning("댓글 내용을 입력해 주세요.");
+      return;
+    }
+
+    const nextComments = detailDraft.comments.map((comment) =>
+      comment.id === editingCommentId
+        ? {
+            ...comment,
+            message: trimmedMessage
+          }
+        : comment
+    );
+
+    setCommentActionPending(true);
+    try {
+      const patchResult = patchKanbanTask(detailTask.id, {
+        comments: nextComments
+      });
+
+      if (!patchResult.ok) {
+        toast.error(patchResult.reason ?? "댓글을 수정하지 못했습니다.");
+        return;
+      }
+
+      setDetailDraft((previous) =>
+        previous
+          ? {
+              ...previous,
+              comments: nextComments
+            }
+          : previous
+      );
+      setEditingCommentId(null);
+      setEditingCommentMessage("");
+      toast.success("댓글을 수정했습니다.");
+    } finally {
+      setCommentActionPending(false);
+    }
+  }, [currentUserId, detailDraft, detailTask, editingCommentId, editingCommentMessage, patchKanbanTask, writable]);
+
+  const handleDeleteComment = useCallback(
+    (commentId: string) => {
+      if (!detailTask || !detailDraft || !currentUserId) {
+        return;
+      }
+
+      if (!writable) {
+        toast.warning("읽기 전용 권한에서는 댓글을 삭제할 수 없습니다.");
+        return;
+      }
+
+      const targetComment = detailDraft.comments.find((comment) => comment.id === commentId);
+      if (!targetComment) {
+        toast.error("삭제할 댓글을 찾지 못했습니다.");
+        return;
+      }
+
+      if (targetComment.authorId !== currentUserId) {
+        toast.error("작성한 댓글만 삭제할 수 있습니다.");
+        return;
+      }
+
+      const confirmed = window.confirm("댓글을 삭제하시겠습니까?");
+      if (!confirmed) {
+        return;
+      }
+
+      const nextComments = detailDraft.comments.filter((comment) => comment.id !== commentId);
+
+      setCommentActionPending(true);
+      try {
+        const patchResult = patchKanbanTask(detailTask.id, {
+          comments: nextComments
+        });
+
+        if (!patchResult.ok) {
+          toast.error(patchResult.reason ?? "댓글을 삭제하지 못했습니다.");
+          return;
+        }
+
+        setDetailDraft((previous) =>
+          previous
+            ? {
+                ...previous,
+                comments: nextComments
+              }
+            : previous
+        );
+        if (editingCommentId === commentId) {
+          setEditingCommentId(null);
+          setEditingCommentMessage("");
+        }
+        toast.success("댓글을 삭제했습니다.");
+      } finally {
+        setCommentActionPending(false);
+      }
+    },
+    [currentUserId, detailDraft, detailTask, editingCommentId, patchKanbanTask, writable]
   );
 
   const moveTaskStage = useCallback(
@@ -914,6 +1335,12 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
       if (!target) return;
       setDetailTaskId(taskId);
       setDetailDraft(createDetailDraft(target));
+      setCommentDraft({
+        message: "",
+        attachments: []
+      });
+      setEditingCommentId(null);
+      setEditingCommentMessage("");
     },
     [visibleTaskMap]
   );
@@ -961,6 +1388,12 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
       setProjectPopupOpen(false);
       setDetailTaskId(null);
       setDetailDraft(null);
+      setCommentDraft({
+        message: "",
+        attachments: []
+      });
+      setEditingCommentId(null);
+      setEditingCommentMessage("");
       setAddTaskPopupOpen(false);
       setHistoryPopupOpen(false);
       router.push(`/app/projects/${nextProjectId}/kanban`);
@@ -998,11 +1431,6 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
   const handleCreateTask = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-
-      if (!writable) {
-        toast.warning("읽기 전용 모드에서는 작업을 추가할 수 없습니다.");
-        return;
-      }
 
       if (!newTaskDraft.title.trim()) {
         toast.warning("작업 제목을 입력해 주세요.");
@@ -1046,7 +1474,7 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
       setAddTaskPopupOpen(false);
       setNewTaskDraft(createNewTaskDraft(projectId, currentUserId, users));
     },
-    [createKanbanTask, currentUserId, newTaskDraft, projectId, users, writable]
+    [createKanbanTask, currentUserId, newTaskDraft, projectId, users]
   );
 
   const handleSaveDetail = useCallback(
@@ -1098,6 +1526,8 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
         participantIds,
         dueDate: dueDateIso,
         visibility: detailDraft.visibility,
+        attachments: normalizeTaskAttachments(detailDraft.attachments),
+        comments: normalizeTaskComments(detailDraft.comments, detailTask.id),
         status: detailDraft.stage,
         priority: numberToLegacyPriority(detailDraft.priority),
         tags: buildKanbanTags(detailTask.tags, detailDraft.stage, detailDraft.priority)
@@ -1111,9 +1541,52 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
       toast.success("작업을 업데이트했습니다.");
       setDetailTaskId(null);
       setDetailDraft(null);
+      setCommentDraft({
+        message: "",
+        attachments: []
+      });
+      setEditingCommentId(null);
+      setEditingCommentMessage("");
     },
     [detailDraft, detailTask, moveTaskStage, patchKanbanTask, writable]
   );
+
+  const handleDeleteDetailTask = useCallback(() => {
+    if (!detailTask) {
+      return;
+    }
+
+    if (!writable) {
+      toast.warning("읽기 전용 모드에서는 삭제할 수 없습니다.");
+      return;
+    }
+
+    if (!removeKanbanTask) {
+      toast.error("스토어에서 removeKanbanTask를 찾지 못했습니다.");
+      return;
+    }
+
+    const confirmed = window.confirm(`"${detailTask.title}" 작업을 삭제하시겠습니까?`);
+    if (!confirmed) {
+      return;
+    }
+
+    const result = normalizeResult(removeKanbanTask(detailTask.id));
+    if (!result.ok) {
+      toast.error(result.reason ?? "작업을 삭제하지 못했습니다.");
+      return;
+    }
+
+    toast.success("작업을 삭제했습니다.");
+    setDetailTaskId(null);
+    setDetailDraft(null);
+    setCommentDraft({
+      message: "",
+      attachments: []
+    });
+    setEditingCommentId(null);
+    setEditingCommentMessage("");
+  }, [detailTask, removeKanbanTask, writable]);
 
   const handleFinalizeTask = useCallback(
     (taskId: string) => {
@@ -1241,7 +1714,6 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
             className={cn("h-7 w-7", TOOLBAR_CONTROL_CLASS)}
             onClick={openAddTaskPopup}
             title="작업 추가"
-            disabled={!writable}
           >
             <CirclePlus className="h-3.5 w-3.5" />
           </Button>
@@ -1366,7 +1838,6 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
                 value={newTaskDraft.title}
                 onChange={(event) => setNewTaskDraft((previous) => ({ ...previous, title: event.target.value }))}
                 placeholder="작업 제목"
-                disabled={!writable}
                 required
               />
             </div>
@@ -1377,7 +1848,6 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
                 value={newTaskDraft.description}
                 onChange={(event) => setNewTaskDraft((previous) => ({ ...previous, description: event.target.value }))}
                 placeholder="설명"
-                disabled={!writable}
                 className="h-24 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm outline-none ring-offset-white transition focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:ring-offset-zinc-900 dark:focus-visible:ring-zinc-700"
               />
             </div>
@@ -1388,7 +1858,6 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
                 value={newTaskDraft.stage}
                 onChange={(event) => setNewTaskDraft((previous) => ({ ...previous, stage: event.target.value as KanbanStage }))}
                 className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
-                disabled={!writable}
               >
                 {COLUMNS.map((column) => (
                   <option key={`new-stage-${column.id}`} value={column.id}>
@@ -1409,7 +1878,6 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
                   }))
                 }
                 className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
-                disabled={!writable}
               >
                 {Array.from({ length: 7 }, (_, index) => index + 1).map((value) => (
                   <option key={`new-priority-${value}`} value={value}>
@@ -1434,7 +1902,6 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
                 placeholder="담당자 이름 입력"
                 allowClear={false}
                 inputClassName="h-9"
-                disabled={!writable}
               />
             </label>
 
@@ -1447,7 +1914,6 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
                 placeholder="Owner 이름 입력"
                 allowClear={false}
                 inputClassName="h-9"
-                disabled={!writable}
               />
             </label>
 
@@ -1457,7 +1923,6 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
                 type="date"
                 value={newTaskDraft.dueDate}
                 onChange={(event) => setNewTaskDraft((previous) => ({ ...previous, dueDate: event.target.value }))}
-                disabled={!writable}
               />
             </label>
 
@@ -1467,7 +1932,6 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
                 value={newTaskDraft.visibility}
                 onChange={(event) => setNewTaskDraft((previous) => ({ ...previous, visibility: event.target.value as "shared" | "private" }))}
                 className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
-                disabled={!writable}
               >
                 <option value="shared">shared</option>
                 <option value="private">private</option>
@@ -1489,7 +1953,6 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
               }
               placeholder="참여자 이름 입력"
               inputClassName="h-9"
-              disabled={!writable}
             />
           </div>
 
@@ -1497,7 +1960,7 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
             <Button type="button" variant="outline" onClick={() => setAddTaskPopupOpen(false)}>
               취소
             </Button>
-            <Button type="submit" disabled={!writable}>
+            <Button type="submit">
               <CirclePlus className="h-4 w-4" />
               작업 추가
             </Button>
@@ -1558,6 +2021,12 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
         onClose={() => {
           setDetailTaskId(null);
           setDetailDraft(null);
+          setCommentDraft({
+            message: "",
+            attachments: []
+          });
+          setEditingCommentId(null);
+          setEditingCommentMessage("");
         }}
         title={detailDraft?.title?.trim() || detailTask?.title || "작업 상세"}
         editableTitle={
@@ -1724,6 +2193,244 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
               </div>
             </div>
 
+            <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3 dark:border-zinc-700/80 dark:bg-zinc-900/60">
+              <div className="flex items-center justify-between gap-2">
+                <p className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                  <Paperclip className="h-3.5 w-3.5" />
+                  태스크 첨부 파일
+                </p>
+                <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800">
+                  <CirclePlus className="h-3.5 w-3.5" />
+                  파일 추가
+                  <input
+                    type="file"
+                    className="hidden"
+                    multiple
+                    accept={TASK_ATTACHMENT_ACCEPT}
+                    onChange={handleAttachFilesToTask}
+                    disabled={!writable || detailAttachmentUploading}
+                  />
+                </label>
+              </div>
+
+              {detailDraft.attachments.length === 0 ? (
+                <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">첨부된 파일이 없습니다.</p>
+              ) : (
+                <ul className="mt-2 space-y-1.5">
+                  {detailDraft.attachments.map((attachment) => (
+                    <li
+                      key={attachment.id}
+                      className="flex items-center justify-between gap-2 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                    >
+                      <a
+                        href={attachment.dataUrl}
+                        download={attachment.name}
+                        className="min-w-0 flex-1 truncate text-zinc-700 underline decoration-dotted underline-offset-2 dark:text-zinc-200"
+                        title={attachment.name}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {attachment.name}
+                        <span className="ml-1 text-[10px] text-zinc-500 dark:text-zinc-400">({formatFileSize(attachment.size)})</span>
+                      </a>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6"
+                        onClick={() => handleRemoveTaskAttachment(attachment.id)}
+                        disabled={!writable}
+                        title="첨부 제거"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3 dark:border-zinc-700/80 dark:bg-zinc-900/60">
+              <p className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                <MessageSquare className="h-3.5 w-3.5" />
+                댓글 ({detailDraft.comments.length})
+              </p>
+
+              <div className="mt-2 space-y-2">
+                {detailDraft.comments.length === 0 ? (
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">등록된 댓글이 없습니다.</p>
+                ) : (
+                  detailDraft.comments
+                    .slice()
+                    .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime())
+                    .map((comment) => {
+                      const isCommentAuthor = Boolean(currentUserId && currentUserId === comment.authorId);
+                      const canManageComment = isCommentAuthor && writable;
+                      const isEditingComment = isCommentAuthor && editingCommentId === comment.id;
+
+                      return (
+                        <article key={comment.id} className="rounded-md border border-zinc-200 bg-white px-2.5 py-2 text-xs dark:border-zinc-700 dark:bg-zinc-900">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold text-zinc-700 dark:text-zinc-200">{comment.authorName}</span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-zinc-500 dark:text-zinc-400">{formatDateTime(comment.createdAt)}</span>
+                              {canManageComment ? (
+                                <div className="ml-1 flex items-center gap-0.5">
+                                  <Button
+                                    type="button"
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-6 w-6"
+                                    onClick={() => handleStartEditComment(comment)}
+                                    disabled={commentSubmitting || commentActionPending}
+                                    title="댓글 수정"
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-6 w-6 text-rose-600 hover:text-rose-700 dark:text-rose-300 dark:hover:text-rose-200"
+                                    onClick={() => handleDeleteComment(comment.id)}
+                                    disabled={commentSubmitting || commentActionPending}
+                                    title="댓글 삭제"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          {isEditingComment ? (
+                            <div className="mt-1.5 space-y-1.5">
+                              <textarea
+                                value={editingCommentMessage}
+                                onChange={(event) => setEditingCommentMessage(event.target.value)}
+                                rows={3}
+                                className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
+                                disabled={commentActionPending}
+                              />
+                              <div className="flex justify-end gap-1.5">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-[11px]"
+                                  onClick={handleCancelEditComment}
+                                  disabled={commentActionPending}
+                                >
+                                  <X className="h-3 w-3" />
+                                  취소
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="h-7 px-2 text-[11px]"
+                                  onClick={handleSaveEditedComment}
+                                  disabled={commentActionPending}
+                                >
+                                  <Check className="h-3 w-3" />
+                                  저장
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="mt-1 whitespace-pre-wrap text-zinc-700 dark:text-zinc-200">{comment.message}</p>
+                          )}
+
+                          {comment.attachments.length > 0 ? (
+                            <ul className="mt-1.5 space-y-1">
+                              {comment.attachments.map((attachment) => (
+                                <li key={attachment.id} className="truncate">
+                                  <a
+                                    href={attachment.dataUrl}
+                                    download={attachment.name}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-zinc-600 underline decoration-dotted underline-offset-2 dark:text-zinc-300"
+                                  >
+                                    {attachment.name}
+                                    <span className="ml-1 text-[10px] text-zinc-500 dark:text-zinc-400">({formatFileSize(attachment.size)})</span>
+                                  </a>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </article>
+                      );
+                    })
+                )}
+              </div>
+
+              <div className="mt-3 rounded-md border border-zinc-200 bg-white p-2.5 dark:border-zinc-700 dark:bg-zinc-900">
+                <textarea
+                  value={commentDraft.message}
+                  onChange={(event) =>
+                    setCommentDraft((previous) => ({
+                      ...previous,
+                      message: event.target.value
+                    }))
+                  }
+                  placeholder="댓글을 입력하세요."
+                  rows={3}
+                  disabled={!writable || commentSubmitting}
+                  className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-700"
+                />
+
+                {commentDraft.attachments.length > 0 ? (
+                  <ul className="mt-2 space-y-1">
+                    {commentDraft.attachments.map((attachment) => (
+                      <li key={attachment.id} className="flex items-center justify-between gap-2 rounded-md border border-zinc-200 px-2 py-1 text-xs dark:border-zinc-700">
+                        <span className="truncate text-zinc-600 dark:text-zinc-300">
+                          {attachment.name}
+                          <span className="ml-1 text-[10px] text-zinc-500 dark:text-zinc-400">({formatFileSize(attachment.size)})</span>
+                        </span>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-6 w-6"
+                          onClick={() => handleRemoveCommentAttachment(attachment.id)}
+                          disabled={!writable || commentSubmitting}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800">
+                    <Paperclip className="h-3.5 w-3.5" />
+                    댓글 파일 첨부
+                    <input
+                      type="file"
+                      className="hidden"
+                      multiple
+                      accept={TASK_ATTACHMENT_ACCEPT}
+                      onChange={handleAttachFilesToCommentDraft}
+                      disabled={!writable || commentSubmitting}
+                    />
+                  </label>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => {
+                      void handleSubmitComment();
+                    }}
+                    disabled={!writable || commentSubmitting || commentActionPending || detailDraft.comments.length >= MAX_TASK_COMMENTS}
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                    댓글 등록
+                  </Button>
+                </div>
+              </div>
+            </div>
+
             {!writable ? <p className="text-xs text-amber-600 dark:text-amber-300">읽기 전용 권한에서는 수정할 수 없습니다.</p> : null}
 
             <div className="flex justify-end gap-2">
@@ -1733,9 +2440,18 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
                 onClick={() => {
                   setDetailTaskId(null);
                   setDetailDraft(null);
+                  setCommentDraft({
+                    message: "",
+                    attachments: []
+                  });
+                  setEditingCommentId(null);
+                  setEditingCommentMessage("");
                 }}
               >
                 취소
+              </Button>
+              <Button type="button" variant="danger" onClick={handleDeleteDetailTask} disabled={!writable}>
+                삭제
               </Button>
               <Button type="submit" disabled={!writable}>
                 저장

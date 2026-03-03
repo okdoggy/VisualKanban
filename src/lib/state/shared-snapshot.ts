@@ -21,6 +21,9 @@ import type {
   Project,
   ProjectMembership,
   ProjectMemberRole,
+  TaskAttachment,
+  TaskAttachmentKind,
+  TaskComment,
   Task,
   TaskPriority,
   TaskStatus,
@@ -48,6 +51,7 @@ const PROJECT_MEMBER_ROLE_SET = new Set<ProjectMemberRole>(["owner", "write", "r
 const ACCESS_ROLE_SET = new Set<AccessRole>(["admin", "editor", "viewer", "private"]);
 const TASK_STATUS_SET = new Set<TaskStatus>(["backlog", "in_progress", "done"]);
 const TASK_PRIORITY_SET = new Set<TaskPriority>(["low", "medium", "high"]);
+const TASK_ATTACHMENT_KIND_SET = new Set<TaskAttachmentKind>(["image", "document"]);
 const TODO_RECURRENCE_TYPE_SET = new Set<TodoRecurrenceType>(["none", "daily", "weekly"]);
 const FEATURE_KEY_SET = new Set<FeatureKey>(["project", "kanban", "whiteboard", "gantt", "taskboard", "todo", "search"]);
 const ACTIVITY_TYPE_SET = new Set<Activity["type"]>(["login", "task_move", "permission_change", "task_create"]);
@@ -107,6 +111,21 @@ function asOptionalIsoString(value: unknown): string | null {
 
 function asBoolean(value: unknown, fallback = false) {
   return typeof value === "boolean" ? value : fallback;
+}
+
+function asNumber(value: unknown, fallback = 0) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return fallback;
 }
 
 function normalizeWorkspaceLanguage(value: unknown): WorkspaceLanguage {
@@ -197,11 +216,31 @@ function sanitizeCollection<T>(value: unknown, fallback: T[], coerce: (entry: un
   return value.map((entry) => coerce(entry)).filter((entry): entry is T => entry !== null);
 }
 
+function cloneTaskAttachment(attachment: TaskAttachment): TaskAttachment {
+  const mimeType = attachment.mimeType || "application/octet-stream";
+  return {
+    ...attachment,
+    mimeType,
+    kind: attachment.kind ?? (mimeType.startsWith("image/") ? "image" : "document"),
+    size: Number.isFinite(attachment.size) ? Math.max(0, Math.trunc(attachment.size)) : 0
+  };
+}
+
+function cloneTaskComment(comment: TaskComment): TaskComment {
+  return {
+    ...comment,
+    taskId: comment.taskId || "unknown-task",
+    attachments: comment.attachments.map(cloneTaskAttachment)
+  };
+}
+
 function cloneTask(task: Task): Task {
   return {
     ...task,
     participantIds: task.participantIds ? [...task.participantIds] : undefined,
-    tags: [...task.tags]
+    tags: [...task.tags],
+    attachments: task.attachments?.map(cloneTaskAttachment),
+    comments: task.comments?.map(cloneTaskComment)
   };
 }
 
@@ -377,6 +416,75 @@ function coercePersonalTodo(entry: unknown): PersonalTodo | null {
   };
 }
 
+function coerceTaskAttachment(entry: unknown): TaskAttachment | null {
+  const record = asRecord(entry);
+  if (!record) {
+    return null;
+  }
+
+  const id = asOptionalString(record.id);
+  const name = asOptionalString(record.name);
+  const mimeType = asOptionalString(record.mimeType);
+  const dataUrl = asOptionalString(record.dataUrl);
+  const createdBy = asOptionalString(record.createdBy);
+
+  if (!id || !name || !mimeType || !dataUrl || !createdBy) {
+    return null;
+  }
+
+  const rawSize = asNumber(record.size, 0);
+  const size = Math.max(0, Math.trunc(rawSize));
+  const rawKind = asOptionalString(record.kind);
+  const kind = TASK_ATTACHMENT_KIND_SET.has(rawKind as TaskAttachmentKind)
+    ? (rawKind as TaskAttachmentKind)
+    : mimeType.startsWith("image/")
+      ? "image"
+      : "document";
+
+  return {
+    id,
+    name,
+    mimeType,
+    kind,
+    size,
+    dataUrl,
+    createdAt: asIsoString(record.createdAt, new Date().toISOString()),
+    createdBy
+  };
+}
+
+function coerceTaskComment(entry: unknown, taskIdFallback?: string): TaskComment | null {
+  const record = asRecord(entry);
+  if (!record) {
+    return null;
+  }
+
+  const id = asOptionalString(record.id);
+  const authorId = asOptionalString(record.authorId);
+  const authorName = asOptionalString(record.authorName);
+  const message = asOptionalString(record.message);
+
+  if (!id || !authorId || !authorName || !message) {
+    return null;
+  }
+  const taskId = asOptionalString(record.taskId) ?? taskIdFallback;
+  if (!taskId) {
+    return null;
+  }
+
+  const attachments = sanitizeCollection(record.attachments, [], coerceTaskAttachment);
+
+  return {
+    id,
+    taskId,
+    authorId,
+    authorName,
+    message,
+    createdAt: asIsoString(record.createdAt, new Date().toISOString()),
+    attachments
+  };
+}
+
 function coerceTask(entry: unknown): Task | null {
   const record = asRecord(entry);
   if (!record) {
@@ -420,6 +528,8 @@ function coerceTask(entry: unknown): Task | null {
     order,
     visibility,
     tags: asStringArray(record.tags),
+    attachments: sanitizeCollection(record.attachments, [], coerceTaskAttachment),
+    comments: sanitizeCollection(record.comments, [], (comment) => coerceTaskComment(comment, id)),
     updatedAt: asIsoString(record.updatedAt, new Date().toISOString())
   };
 }

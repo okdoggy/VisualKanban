@@ -175,8 +175,9 @@ export function SharedStateSyncManager() {
         return;
       }
 
-      const currentUserId = useVisualKanbanStore.getState().currentUserId;
-      if (!currentUserId) {
+      const state = useVisualKanbanStore.getState();
+      const currentUserId = state.currentUserId;
+      if (!currentUserId || !state.users.some((user) => user.id === currentUserId)) {
         return;
       }
 
@@ -212,6 +213,11 @@ export function SharedStateSyncManager() {
               applyRemoteSnapshot(remoteState);
             }
           }
+          return;
+        }
+
+        if (response.status === 401 || response.status === 403) {
+          pendingSnapshotRef.current = null;
           return;
         }
 
