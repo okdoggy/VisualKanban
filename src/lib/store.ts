@@ -98,6 +98,7 @@ export const VISUAL_KANBAN_SHARED_SNAPSHOT_KEYS = [
 type VisualKanbanSharedSnapshotKey = (typeof VISUAL_KANBAN_SHARED_SNAPSHOT_KEYS)[number];
 type SessionLocalStateKey = (typeof SESSION_LOCAL_STATE_KEYS)[number];
 type LocalPersistStateKey = (typeof LOCAL_PERSIST_STATE_KEYS)[number];
+type TaskAttachmentRecord = NonNullable<Task["attachments"]>[number];
 
 function normalizeWorkspaceLanguage(language: WorkspaceLanguage | null | undefined): WorkspaceLanguage {
   return language === "en" ? "en" : "ko";
@@ -359,6 +360,49 @@ function uniqTags(tags: string[]) {
   return [...new Set(tags)];
 }
 
+function createFileDownloadUrl(fileId: string) {
+  return `/api/files/${encodeURIComponent(fileId)}`;
+}
+
+function normalizeTaskAttachment(
+  attachment: TaskAttachmentRecord,
+  options?: {
+    createdBy?: string;
+  }
+): TaskAttachmentRecord {
+  const mimeType = attachment.mimeType || "application/octet-stream";
+  const kind = attachment.kind ?? (mimeType.startsWith("image/") ? "image" : "document");
+  const size = Number.isFinite(attachment.size) ? Math.max(0, Math.trunc(attachment.size)) : 0;
+  const createdBy = options?.createdBy ?? attachment.createdBy;
+  const fileId = typeof attachment.fileId === "string" && attachment.fileId.trim().length > 0 ? attachment.fileId.trim() : undefined;
+  const urlFromPayload = typeof attachment.url === "string" && attachment.url.trim().length > 0 ? attachment.url.trim() : undefined;
+  const url = urlFromPayload ?? (fileId ? createFileDownloadUrl(fileId) : undefined);
+  const dataUrl = typeof attachment.dataUrl === "string" && attachment.dataUrl.trim().length > 0 ? attachment.dataUrl.trim() : undefined;
+
+  if (
+    mimeType === attachment.mimeType &&
+    kind === attachment.kind &&
+    size === attachment.size &&
+    createdBy === attachment.createdBy &&
+    fileId === attachment.fileId &&
+    url === attachment.url &&
+    dataUrl === attachment.dataUrl
+  ) {
+    return attachment;
+  }
+
+  return {
+    ...attachment,
+    mimeType,
+    kind,
+    size,
+    createdBy,
+    fileId,
+    url,
+    dataUrl
+  };
+}
+
 function getKanbanStage(task: Task): KanbanTaskStatus {
   if (task.status === "backlog" && task.tags.includes(KANBAN_TODO_TAG)) {
     return "todo";
@@ -390,17 +434,11 @@ function cloneTaskSnapshot(task: Task): Task {
     ...task,
     participantIds: task.participantIds ? [...task.participantIds] : undefined,
     tags: [...task.tags],
-    attachments: task.attachments?.map((attachment) => ({
-      ...attachment,
-      kind: attachment.kind ?? (attachment.mimeType?.startsWith("image/") ? "image" : "document")
-    })),
+    attachments: task.attachments?.map((attachment) => normalizeTaskAttachment(attachment)),
     comments: task.comments?.map((comment) => ({
       ...comment,
       taskId: comment.taskId || task.id,
-      attachments: comment.attachments.map((attachment) => ({
-        ...attachment,
-        kind: attachment.kind ?? (attachment.mimeType?.startsWith("image/") ? "image" : "document")
-      }))
+      attachments: comment.attachments.map((attachment) => normalizeTaskAttachment(attachment))
     }))
   };
 }
@@ -482,40 +520,18 @@ function sanitizeLegacySeedAccounts(state: VisualKanbanState): VisualKanbanState
     const reporterId = normalizeUserId(task.reporterId);
     const ownerId = normalizeUserId(task.ownerId);
     const participantIds = normalizeParticipantIds(task.participantIds, assigneeId);
-    const normalizedAttachments = task.attachments?.map((attachment) => {
-      const createdBy = normalizeUserId(attachment.createdBy);
-      const kind = attachment.kind ?? (attachment.mimeType?.startsWith("image/") ? "image" : "document");
-      return createdBy === attachment.createdBy
-        ? kind === attachment.kind
-          ? attachment
-          : {
-              ...attachment,
-              kind
-            }
-        : {
-            ...attachment,
-            createdBy,
-            kind
-          };
-    });
+    const normalizedAttachments = task.attachments?.map((attachment) =>
+      normalizeTaskAttachment(attachment, {
+        createdBy: normalizeUserId(attachment.createdBy)
+      })
+    );
     const normalizedComments = task.comments?.map((comment) => {
       const authorId = normalizeUserId(comment.authorId);
-      const normalizedCommentAttachments = comment.attachments?.map((attachment) => {
-        const createdBy = normalizeUserId(attachment.createdBy);
-        const kind = attachment.kind ?? (attachment.mimeType?.startsWith("image/") ? "image" : "document");
-        return createdBy === attachment.createdBy
-          ? kind === attachment.kind
-            ? attachment
-            : {
-                ...attachment,
-                kind
-              }
-          : {
-              ...attachment,
-              createdBy,
-              kind
-            };
-      });
+      const normalizedCommentAttachments = comment.attachments?.map((attachment) =>
+        normalizeTaskAttachment(attachment, {
+          createdBy: normalizeUserId(attachment.createdBy)
+        })
+      );
 
       return {
         ...comment,

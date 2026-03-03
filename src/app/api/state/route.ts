@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MissingDatabaseUrlError } from "@/lib/server/postgres";
+import { authorizeWorkspaceStateMutation } from "@/lib/server/state/workspace-state-authorization";
 import { readWorkspaceSnapshot, writeWorkspaceSnapshot } from "@/lib/server/state/workspace-state-repository";
 import { parseWorkspaceId, sanitizeSharedWorkspaceState } from "@/lib/state/shared-snapshot";
 
@@ -138,6 +139,26 @@ export async function PUT(request: NextRequest) {
   }
 
   try {
+    const currentSnapshot = await readWorkspaceSnapshot(parsed.workspaceId);
+    const authorization = authorizeWorkspaceStateMutation({
+      actorUserId,
+      currentState: currentSnapshot.state,
+      nextState: parsed.state
+    });
+
+    if (!authorization.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: authorization.reason
+        },
+        {
+          status: 403,
+          headers: NO_STORE_HEADERS
+        }
+      );
+    }
+
     const result = await writeWorkspaceSnapshot(parsed);
 
     if (!result.ok) {

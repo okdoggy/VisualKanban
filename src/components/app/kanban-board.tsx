@@ -195,6 +195,7 @@ const MAX_ATTACHMENT_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const MAX_TASK_ATTACHMENTS = 30;
 const MAX_COMMENT_ATTACHMENTS = 10;
 const MAX_TASK_COMMENTS = 200;
+const SHARED_WORKSPACE_ID = process.env.NEXT_PUBLIC_VK_STATE_WORKSPACE_ID?.trim() || "main";
 
 function makeClientId(prefix: string) {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -209,22 +210,22 @@ function formatFileSize(size: number) {
   return `${size}B`;
 }
 
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result === "string") {
-        resolve(result);
-        return;
-      }
-      reject(new Error("파일을 읽지 못했습니다."));
-    };
-    reader.onerror = () => {
-      reject(new Error("파일을 읽지 못했습니다."));
-    };
-    reader.readAsDataURL(file);
-  });
+function normalizeOptionalString(value: unknown) {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function resolveAttachmentUrl(attachment: Pick<TaskAttachment, "fileId" | "url">) {
+  const fileId = normalizeOptionalString(attachment.fileId);
+  const url = normalizeOptionalString(attachment.url);
+  if (url) return url;
+  if (!fileId) return undefined;
+  return `/api/files/${encodeURIComponent(fileId)}`;
+}
+
+function getAttachmentHref(attachment: TaskAttachment) {
+  return resolveAttachmentUrl(attachment) ?? normalizeOptionalString(attachment.dataUrl);
 }
 
 function resolveAttachmentKind(mimeType: string): TaskAttachment["kind"] {
@@ -233,11 +234,21 @@ function resolveAttachmentKind(mimeType: string): TaskAttachment["kind"] {
 
 function cloneTaskAttachment(attachment: TaskAttachment): TaskAttachment {
   const mimeType = attachment.mimeType || "application/octet-stream";
+  const fileId = normalizeOptionalString(attachment.fileId);
+  const url = resolveAttachmentUrl({
+    fileId,
+    url: attachment.url
+  });
+  const dataUrl = normalizeOptionalString(attachment.dataUrl);
+
   return {
     ...attachment,
     mimeType,
     kind: attachment.kind ?? resolveAttachmentKind(mimeType),
-    size: Number.isFinite(attachment.size) ? Math.max(0, Math.trunc(attachment.size)) : 0
+    size: Number.isFinite(attachment.size) ? Math.max(0, Math.trunc(attachment.size)) : 0,
+    fileId,
+    url,
+    dataUrl
   };
 }
 
@@ -939,7 +950,7 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
   );
 
   const toTaskAttachments = useCallback(
-    async (files: FileList, createdBy: string): Promise<TaskAttachment[]> => {
+    async (files: FileList, fallbackCreatedBy: string): Promise<TaskAttachment[]> => {
       const resolved: TaskAttachment[] = [];
 
       for (const file of Array.from(files)) {
@@ -947,18 +958,45 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
           throw new Error(`${file.name}: 파일 크기는 ${formatFileSize(MAX_ATTACHMENT_FILE_SIZE_BYTES)} 이하만 지원합니다.`);
         }
 
-        const dataUrl = await readFileAsDataUrl(file);
-        const mimeType = file.type || "application/octet-stream";
-        resolved.push({
-          id: makeClientId("task-attachment"),
-          name: file.name,
-          mimeType,
-          kind: resolveAttachmentKind(mimeType),
-          size: file.size,
-          dataUrl,
-          createdAt: new Date().toISOString(),
-          createdBy
+        const formData = new FormData();
+        formData.set("workspaceId", SHARED_WORKSPACE_ID);
+        formData.set("file", file);
+
+        const response = await fetch("/api/files", {
+          method: "POST",
+          body: formData
         });
+        const payload = (await response.json().catch(() => ({}))) as {
+          ok?: unknown;
+          error?: unknown;
+          attachment?: Partial<TaskAttachment>;
+        };
+
+        if (!response.ok || !payload.ok || !payload.attachment) {
+          const fallbackMessage =
+            response.status === 401
+              ? "파일 업로드를 위해 다시 로그인해 주세요."
+              : `${file.name}: 첨부 파일을 서버에 업로드하지 못했습니다.`;
+          throw new Error(typeof payload.error === "string" ? payload.error : fallbackMessage);
+        }
+
+        const attachment = payload.attachment;
+        const fallbackMimeType = file.type || "application/octet-stream";
+        const mimeType = normalizeOptionalString(attachment.mimeType) ?? fallbackMimeType;
+        const normalized = cloneTaskAttachment({
+          id: normalizeOptionalString(attachment.id) ?? makeClientId("task-attachment"),
+          name: normalizeOptionalString(attachment.name) ?? file.name,
+          mimeType,
+          kind: attachment.kind === "image" || attachment.kind === "document" ? attachment.kind : resolveAttachmentKind(mimeType),
+          size: typeof attachment.size === "number" && Number.isFinite(attachment.size) ? attachment.size : file.size,
+          fileId: normalizeOptionalString(attachment.fileId),
+          url: normalizeOptionalString(attachment.url),
+          dataUrl: normalizeOptionalString(attachment.dataUrl),
+          createdAt: normalizeOptionalString(attachment.createdAt) ?? new Date().toISOString(),
+          createdBy: normalizeOptionalString(attachment.createdBy) ?? fallbackCreatedBy
+        });
+
+        resolved.push(normalized);
       }
 
       return resolved;
@@ -2218,33 +2256,45 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
               ) : (
                 <ul className="mt-2 space-y-1.5">
                   {detailDraft.attachments.map((attachment) => (
-                    <li
-                      key={attachment.id}
-                      className="flex items-center justify-between gap-2 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
-                    >
-                      <a
-                        href={attachment.dataUrl}
-                        download={attachment.name}
-                        className="min-w-0 flex-1 truncate text-zinc-700 underline decoration-dotted underline-offset-2 dark:text-zinc-200"
-                        title={attachment.name}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {attachment.name}
-                        <span className="ml-1 text-[10px] text-zinc-500 dark:text-zinc-400">({formatFileSize(attachment.size)})</span>
-                      </a>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="h-6 w-6"
-                        onClick={() => handleRemoveTaskAttachment(attachment.id)}
-                        disabled={!writable}
-                        title="첨부 제거"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </Button>
-                    </li>
+                    (() => {
+                      const href = getAttachmentHref(attachment);
+                      return (
+                        <li
+                          key={attachment.id}
+                          className="flex items-center justify-between gap-2 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                        >
+                          {href ? (
+                            <a
+                              href={href}
+                              download={attachment.name}
+                              className="min-w-0 flex-1 truncate text-zinc-700 underline decoration-dotted underline-offset-2 dark:text-zinc-200"
+                              title={attachment.name}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {attachment.name}
+                              <span className="ml-1 text-[10px] text-zinc-500 dark:text-zinc-400">({formatFileSize(attachment.size)})</span>
+                            </a>
+                          ) : (
+                            <span className="min-w-0 flex-1 truncate text-zinc-500 dark:text-zinc-400">
+                              {attachment.name}
+                              <span className="ml-1 text-[10px]">({formatFileSize(attachment.size)})</span>
+                            </span>
+                          )}
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6"
+                            onClick={() => handleRemoveTaskAttachment(attachment.id)}
+                            disabled={!writable}
+                            title="첨부 제거"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </li>
+                      );
+                    })()
                   ))}
                 </ul>
               )}
@@ -2343,18 +2393,32 @@ export function KanbanBoard({ projectId }: { projectId: string }) {
                           {comment.attachments.length > 0 ? (
                             <ul className="mt-1.5 space-y-1">
                               {comment.attachments.map((attachment) => (
-                                <li key={attachment.id} className="truncate">
-                                  <a
-                                    href={attachment.dataUrl}
-                                    download={attachment.name}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="text-zinc-600 underline decoration-dotted underline-offset-2 dark:text-zinc-300"
-                                  >
-                                    {attachment.name}
-                                    <span className="ml-1 text-[10px] text-zinc-500 dark:text-zinc-400">({formatFileSize(attachment.size)})</span>
-                                  </a>
-                                </li>
+                                (() => {
+                                  const href = getAttachmentHref(attachment);
+                                  return (
+                                    <li key={attachment.id} className="truncate">
+                                      {href ? (
+                                        <a
+                                          href={href}
+                                          download={attachment.name}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="text-zinc-600 underline decoration-dotted underline-offset-2 dark:text-zinc-300"
+                                        >
+                                          {attachment.name}
+                                          <span className="ml-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+                                            ({formatFileSize(attachment.size)})
+                                          </span>
+                                        </a>
+                                      ) : (
+                                        <span className="text-zinc-500 dark:text-zinc-400">
+                                          {attachment.name}
+                                          <span className="ml-1 text-[10px]">({formatFileSize(attachment.size)})</span>
+                                        </span>
+                                      )}
+                                    </li>
+                                  );
+                                })()
                               ))}
                             </ul>
                           ) : null}

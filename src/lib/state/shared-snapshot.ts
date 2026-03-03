@@ -216,13 +216,24 @@ function sanitizeCollection<T>(value: unknown, fallback: T[], coerce: (entry: un
   return value.map((entry) => coerce(entry)).filter((entry): entry is T => entry !== null);
 }
 
+function createFileDownloadUrl(fileId: string) {
+  return `/api/files/${encodeURIComponent(fileId)}`;
+}
+
 function cloneTaskAttachment(attachment: TaskAttachment): TaskAttachment {
   const mimeType = attachment.mimeType || "application/octet-stream";
+  const fileId = asOptionalString(attachment.fileId);
+  const url = asOptionalString(attachment.url) ?? (fileId ? createFileDownloadUrl(fileId) : undefined);
+  const dataUrl = asOptionalString(attachment.dataUrl);
+
   return {
     ...attachment,
     mimeType,
     kind: attachment.kind ?? (mimeType.startsWith("image/") ? "image" : "document"),
-    size: Number.isFinite(attachment.size) ? Math.max(0, Math.trunc(attachment.size)) : 0
+    size: Number.isFinite(attachment.size) ? Math.max(0, Math.trunc(attachment.size)) : 0,
+    fileId,
+    url,
+    dataUrl
   };
 }
 
@@ -425,10 +436,16 @@ function coerceTaskAttachment(entry: unknown): TaskAttachment | null {
   const id = asOptionalString(record.id);
   const name = asOptionalString(record.name);
   const mimeType = asOptionalString(record.mimeType);
-  const dataUrl = asOptionalString(record.dataUrl);
   const createdBy = asOptionalString(record.createdBy);
+  const fileId = asOptionalString(record.fileId);
+  const url = asOptionalString(record.url) ?? (fileId ? createFileDownloadUrl(fileId) : undefined);
+  const dataUrl = asOptionalString(record.dataUrl);
 
-  if (!id || !name || !mimeType || !dataUrl || !createdBy) {
+  if (!id || !name || !mimeType || !createdBy) {
+    return null;
+  }
+
+  if (!dataUrl && !fileId && !url) {
     return null;
   }
 
@@ -447,6 +464,8 @@ function coerceTaskAttachment(entry: unknown): TaskAttachment | null {
     mimeType,
     kind,
     size,
+    fileId,
+    url,
     dataUrl,
     createdAt: asIsoString(record.createdAt, new Date().toISOString()),
     createdBy

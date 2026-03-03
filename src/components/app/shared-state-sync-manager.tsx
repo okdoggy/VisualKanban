@@ -5,6 +5,8 @@ import { getSharedStateSnapshot, useVisualKanbanStore, VISUAL_KANBAN_SHARED_SNAP
 import type { VisualKanbanSharedSnapshot } from "@/lib/types";
 
 const SAVE_DEBOUNCE_MS = 900;
+const CONFLICT_RETRY_DELAY_MS = 250;
+const MAX_CONFLICT_REBASE_RETRIES = 3;
 const SYNC_ENABLED = process.env.NEXT_PUBLIC_VK_STATE_SYNC_ENABLED !== "false";
 const POLL_INTERVAL_MS = Number.parseInt(process.env.NEXT_PUBLIC_VK_STATE_SYNC_POLL_INTERVAL_MS ?? "6000", 10) || 6_000;
 const SHARED_WORKSPACE_ID = process.env.NEXT_PUBLIC_VK_STATE_WORKSPACE_ID?.trim() || "main";
@@ -80,6 +82,10 @@ function serializeSnapshot(snapshot: VisualKanbanSharedSnapshot) {
   return JSON.stringify(snapshot);
 }
 
+function isSameValue(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function mergePartialSnapshot({
   currentSnapshot,
   partialSnapshot
@@ -93,6 +99,29 @@ function mergePartialSnapshot({
   };
 }
 
+function rebaseSnapshot({
+  baseSnapshot,
+  localSnapshot,
+  remoteSnapshot
+}: {
+  baseSnapshot: VisualKanbanSharedSnapshot;
+  localSnapshot: VisualKanbanSharedSnapshot;
+  remoteSnapshot: VisualKanbanSharedSnapshot;
+}): VisualKanbanSharedSnapshot {
+  const nextSnapshot: VisualKanbanSharedSnapshot = {
+    ...remoteSnapshot
+  };
+
+  for (const key of VISUAL_KANBAN_SHARED_SNAPSHOT_KEYS) {
+    const snapshotKey = key as keyof VisualKanbanSharedSnapshot;
+    if (!isSameValue(baseSnapshot[snapshotKey], localSnapshot[snapshotKey])) {
+      (nextSnapshot as unknown as Record<string, unknown>)[snapshotKey] = localSnapshot[snapshotKey];
+    }
+  }
+
+  return nextSnapshot;
+}
+
 export function SharedStateSyncManager() {
   const replaceSharedState = useVisualKanbanStore((state) => state.replaceSharedState);
 
@@ -100,8 +129,11 @@ export function SharedStateSyncManager() {
   const applyRemoteInProgressRef = useRef(false);
   const saveInProgressRef = useRef(false);
   const latestKnownVersionRef = useRef<number | null>(null);
+  const latestSyncedSnapshotRef = useRef<VisualKanbanSharedSnapshot | null>(null);
   const latestSnapshotSerializedRef = useRef("");
   const pendingSnapshotRef = useRef<VisualKanbanSharedSnapshot | null>(null);
+  const pendingBaseSnapshotRef = useRef<VisualKanbanSharedSnapshot | null>(null);
+  const pendingRetryCountRef = useRef(0);
   const saveTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -127,21 +159,39 @@ export function SharedStateSyncManager() {
       }
     };
 
-    const applyRemoteSnapshot = (remote: ParsedApiState) => {
-      if (!remote.snapshot) return;
-
+    const applySnapshotToStore = ({
+      snapshot,
+      version,
+      markAsSynced
+    }: {
+      snapshot: VisualKanbanSharedSnapshot | Partial<VisualKanbanSharedSnapshot>;
+      version?: number | null;
+      markAsSynced: boolean;
+    }) => {
       applyRemoteInProgressRef.current = true;
       try {
-        replaceSharedState(remote.snapshot);
+        replaceSharedState(snapshot);
         const nextSnapshot = getSharedStateSnapshot(useVisualKanbanStore.getState());
         latestSnapshotSerializedRef.current = serializeSnapshot(nextSnapshot);
 
-        if (remote.version !== null) {
-          latestKnownVersionRef.current = remote.version;
+        if (typeof version === "number" && Number.isFinite(version) && version >= 0) {
+          latestKnownVersionRef.current = Math.trunc(version);
+        }
+
+        if (markAsSynced) {
+          latestSyncedSnapshotRef.current = nextSnapshot;
         }
       } finally {
         applyRemoteInProgressRef.current = false;
       }
+    };
+
+    const materializeRemoteSnapshot = (partialSnapshot: Partial<VisualKanbanSharedSnapshot>): VisualKanbanSharedSnapshot => {
+      const baseSnapshot = latestSyncedSnapshotRef.current ?? getSharedStateSnapshot(useVisualKanbanStore.getState());
+      return mergePartialSnapshot({
+        currentSnapshot: baseSnapshot,
+        partialSnapshot
+      });
     };
 
     const fetchRemoteState = async (): Promise<ParsedApiState | null> => {
@@ -181,7 +231,12 @@ export function SharedStateSyncManager() {
         return;
       }
 
+      const pendingBaseSnapshot = pendingBaseSnapshotRef.current ?? latestSyncedSnapshotRef.current ?? pendingSnapshot;
+      const pendingRetryCount = pendingRetryCountRef.current;
+
       pendingSnapshotRef.current = null;
+      pendingBaseSnapshotRef.current = null;
+      pendingRetryCountRef.current = 0;
       saveInProgressRef.current = true;
 
       try {
@@ -205,46 +260,91 @@ export function SharedStateSyncManager() {
         const parsed = parseApiStatePayload(payload);
 
         if (response.status === 409) {
-          if (parsed.snapshot) {
-            applyRemoteSnapshot(parsed);
-          } else {
-            const remoteState = await fetchRemoteState();
-            if (remoteState?.snapshot) {
-              applyRemoteSnapshot(remoteState);
-            }
+          const remoteState = parsed.snapshot ? parsed : await fetchRemoteState();
+          if (!remoteState?.snapshot) {
+            pendingSnapshotRef.current = pendingSnapshot;
+            pendingBaseSnapshotRef.current = pendingBaseSnapshot;
+            pendingRetryCountRef.current = pendingRetryCount;
+            return;
           }
+
+          const remoteSnapshot = materializeRemoteSnapshot(remoteState.snapshot);
+          latestSyncedSnapshotRef.current = remoteSnapshot;
+          if (remoteState.version !== null) {
+            latestKnownVersionRef.current = remoteState.version;
+          }
+
+          const rebasedSnapshot = rebaseSnapshot({
+            baseSnapshot: pendingBaseSnapshot,
+            localSnapshot: pendingSnapshot,
+            remoteSnapshot
+          });
+
+          const remoteSerialized = serializeSnapshot(remoteSnapshot);
+          const rebasedSerialized = serializeSnapshot(rebasedSnapshot);
+
+          if (rebasedSerialized !== latestSnapshotSerializedRef.current) {
+            applySnapshotToStore({
+              snapshot: rebasedSnapshot,
+              version: remoteState.version,
+              markAsSynced: false
+            });
+          } else if (remoteState.version !== null) {
+            latestKnownVersionRef.current = remoteState.version;
+          }
+
+          if (rebasedSerialized !== remoteSerialized) {
+            pendingSnapshotRef.current = rebasedSnapshot;
+            pendingBaseSnapshotRef.current = remoteSnapshot;
+            pendingRetryCountRef.current =
+              pendingRetryCount < MAX_CONFLICT_REBASE_RETRIES ? pendingRetryCount + 1 : 0;
+          }
+
           return;
         }
 
         if (response.status === 401 || response.status === 403) {
           pendingSnapshotRef.current = null;
+          pendingBaseSnapshotRef.current = null;
+          pendingRetryCountRef.current = 0;
           return;
         }
 
         if (!response.ok) {
           pendingSnapshotRef.current = pendingSnapshot;
+          pendingBaseSnapshotRef.current = pendingBaseSnapshot;
+          pendingRetryCountRef.current = pendingRetryCount;
           return;
         }
 
         if (parsed.snapshot) {
-          applyRemoteSnapshot(parsed);
+          const syncedSnapshot = materializeRemoteSnapshot(parsed.snapshot);
+          applySnapshotToStore({
+            snapshot: syncedSnapshot,
+            version: parsed.version,
+            markAsSynced: true
+          });
           return;
         }
 
         if (parsed.version !== null) {
           latestKnownVersionRef.current = parsed.version;
         }
+        latestSyncedSnapshotRef.current = pendingSnapshot;
         latestSnapshotSerializedRef.current = serializeSnapshot(pendingSnapshot);
       } catch {
         // Network/API failures should not break local-only behavior.
         pendingSnapshotRef.current = pendingSnapshot;
+        pendingBaseSnapshotRef.current = pendingBaseSnapshot;
+        pendingRetryCountRef.current = pendingRetryCount;
       } finally {
         saveInProgressRef.current = false;
 
         if (!unmounted && pendingSnapshotRef.current) {
+          const delayMs = pendingRetryCountRef.current > 0 ? CONFLICT_RETRY_DELAY_MS : SAVE_DEBOUNCE_MS;
           saveTimerRef.current = window.setTimeout(() => {
             void flushPendingSave();
-          }, SAVE_DEBOUNCE_MS);
+          }, delayMs);
         }
       }
     };
@@ -272,7 +372,11 @@ export function SharedStateSyncManager() {
         return;
       }
 
+      if (!pendingSnapshotRef.current) {
+        pendingBaseSnapshotRef.current = latestSyncedSnapshotRef.current ?? snapshot;
+      }
       pendingSnapshotRef.current = snapshot;
+      pendingRetryCountRef.current = 0;
       scheduleSave();
     });
 
@@ -309,7 +413,12 @@ export function SharedStateSyncManager() {
       }
 
       if (remoteState?.snapshot) {
-        applyRemoteSnapshot(remoteState);
+        const remoteSnapshot = materializeRemoteSnapshot(remoteState.snapshot);
+        applySnapshotToStore({
+          snapshot: remoteSnapshot,
+          version: remoteState.version,
+          markAsSynced: true
+        });
       }
 
       syncReadyRef.current = true;
@@ -350,10 +459,15 @@ export function SharedStateSyncManager() {
           if (remoteState.version !== null) {
             latestKnownVersionRef.current = remoteState.version;
           }
+          latestSyncedSnapshotRef.current = mergedRemoteSnapshot;
           return;
         }
 
-        applyRemoteSnapshot(remoteState);
+        applySnapshotToStore({
+          snapshot: mergedRemoteSnapshot,
+          version: remoteState.version,
+          markAsSynced: true
+        });
       })();
     }, POLL_INTERVAL_MS);
 

@@ -72,7 +72,9 @@ export interface TaskAttachment {
   mimeType: string;
   kind: TaskAttachmentKind;
   size: number;
-  dataUrl: string;
+  fileId?: string;
+  url?: string;
+  dataUrl?: string;
   createdAt: string;
   createdBy: string;
 }
